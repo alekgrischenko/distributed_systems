@@ -1,0 +1,1602 @@
+* Designing for Scalability with Erlang/OTP. Implementing Robust, Fault-Tolerant Systems
+By Francesco Cesarini, Steve Vinoski
+
+
+** Chapter 13. Distributed Architectures.
+
+How to achieve *availability*, *scalability*, and *consistency* across these nodes.
+These qualities go hand in hand with *reliability*,
+which ensures that your system behaves correctly even under abnormal circumstances such as failure or extreme load.
+
+A *node* is the smallest executable standalone unit consisting of a running instance of the Erlang runtime system.
+Node consists of a number of loosely coupled OTP applications, defined in its OTP release file.
+
+Nodes that share a release file contain the same set of OTP applications
+are considered to be nodes of the same type.
+Nodes of one type can interact in a cluster with other node types.
+
+Clusters are needed for a variety of reasons:
+- microservices architecture, where each cluster of nodes provides a set of services
+- for scalability, sharding across identical clusters to increase computing power and availability
+- и все?..
+
+Hybrid target environments (что это значит?)
+in potentially geographically remote data centers,
+there is no single solution that fits all contexts.
+
+Tools and frameworks dealing with monitoring, management, and orchestration of Erlang nodes
+have to cater to different cluster patterns.
+
+We describe the most common distributed architectural patterns used to provide these services
+and introduce some of the most popular distributed frameworks, such as
+*Riak Core* and *Scalable Distributed Erlang*
+
+
+*** Node Types and Families
+
+Есть общепринятая терминология в рамках OTP, и все разработчики понимают друг друга.
+Но нет общепринятной терминологии для описания распределенных систем, каждый изобретает свою.
+
+Although there was no ambiguity when developers in remote parts of the world
+spoke about generic servers, applications, or releases,
+confusion arose when trying to discuss clusters, the roles of nodes in clusters, or scalability patterns.
+
+These definitions were discussed and formalized as part of the RELEASE project,
+EU-funded research addressing the scalability of the Erlang VM in distributed, many-core architectures.
+
+Let`s define our terminology.
+
+three *semantic node types*:
+- Front-end Node -- external connectivity to clients and handling all incoming requests (Web Server);
+- Logic Node, Back-end Node -- implement the system's business logic;
+- Service Node -- provide a service to the logic nodes: could be a database, an authentication server, or a payment gateway.
+
+Combining all such applications into a single node
+reduces internode I/O and networking overhead by running everything in the same memory space,
+but it also produces a single point of failure and an architecture that might not scale.
+
+Try to keep memory-bound and CPU-bound functionality in separate nodes.
+That facilitates the fine-tuning of the VM
+and gives you flexibility in choosing the underlying hardware,
+optimizing for cost and performance.
+
+We group node types running the same OTP release into a *node family*.
+This is a way of managing nodes as a single entity.
+You can have different node families with the same release,
+but grouped together based on criteria such as data center, cloud region, or even release version.
+
+Node families are then grouped into *clusters*, which together give you your *system*.
+
+Node - Node Family - Cluster - System.
+
+We add multiple instances of node types in our architecture
+to create distributed cluster patterns, also known as *system blueprints*.
+
+*Static architecture* scales by adding independent instances of the system that do not interact with each other.
+
+But if your app is a global online store that *scales dynamically* based on peaks and troughs,
+elastically adding computing capacity in the run-up to events
+such as payday, Black Friday, and Christmas
+and then releasing it again when not needed,
+extra thought needs to be put into the system from the start.
+
+Both static and dynamic approaches to node (and hardware) management in your cluster
+go hand in hand with the strategies of
+how you distribute your data across nodes, node families, and ultimately clusters.
+How you connect your nodes and clusters together also becomes important,
+as does your data replication strategy across them.
+
+Tradeoffs between availability, reliability, consistency, and scalability.
+You need to understand the compromises that fit the needs of the system.
+
+
+*** Networking
+
+Distributed Erlang is ideal for smaller clusters within the same data center.
+
+It is not always the right solution when
+multi-datacenter deployments, security, availability, and massive scalability come into the picture.
+
+RESTful APIs give you platform independence, as do other protocols such as AMQP, SNMP, MQTT, and XMPP.
+
+Distributed Erlang might still fit your needs,
+but rather than running it over TCP you might want to use alternative carriers such as 0MQ, UDP, SSL, or MPI.
+
+In some systems, the network topology will go as far as providing different networks for different types of traffic.
+Traffic handling monitoring, billing, configuration, and maintenance would go through an *operations and maintenance (O&M network)*,
+while traffic such as setting up of calls, instant messages, SMSs, or telemetry data would be routed through a *data network*.
+You would split them, as the data network would have higher bandwidth and availability requirements than the O&M one.
+
+If you are concerned about security, you might want to place your front-end nodes in a demilitarized zone (DMZ),
+also known as a perimeter network.
+This is a physical or logical part of the network
+that exposes your nodes to an untrusted network (i.e., the Internet)
+used by the clients to access your services.
+
+If you were to use distributed Erlang, access to your front-end nodes would pretty much also mean
+access to your logic and service nodes as well.
+
+Fallacies of Distributed Computing (by Peter Deutsch)
+https://en.wikipedia.org/wiki/Fallacies_of_distributed_computing:
+- The network is reliable.
+- Latency is zero.
+- Bandwidth is infinite.
+- The network is secure.
+- Topology doesn't change.
+- There is one administrator.
+- Transport cost is zero.
+- The network is homogeneous.
+
+If network connectivity to a remote node goes down, how do you know it is a network issue,
+and not the remote node that has crashed or is slow at responding?
+Do you send back an error, or do you retry executing the call on a different node?
+And if you retry on a different node,
+how can you be sure the request you sent to the first node
+didn`t already result in persistent side effects.
+It is impossible to differentiate between a node crash and a slow node.
+
+
+*** Distributed Erlang
+
+Two approaches to implementing your architecture using distributed Erlang:
+- static cluster has a fixed number of known parameters with fixed identities (hostnames, IPs, MAC addresses, etc.).
+- dynamic cluster, the number of identities and nodes changes at runtime.
+
+In both cases, your system needs to be implemented with transitive connections in mind,
+because either network connectivity or the nodes themselves can fail (and restart).
+
+Only difference:
+In dynamic cluster nodes are started and stopped in a controlled way.
+In a static system, they don`t stop unless they fail.
+
+Fully meshed Erlang clusters (ноды соединены каждая с каждой)
+scale to about 70 to 100 nodes
+before performance degradation starts becoming evident.
+
+With 100 connected nodes, you get 5,050 TCP connections (100+99+...+2+1) and heartbeats across them all.
+
+Hidden nodes act as gateways stopping the propagation of information across clusters of fully meshed nodes.
+They provide you with isolation and scalability, but you have to build frameworks that sit on top of them.
+но есть готовые решения: Riak Core и Scalable Distributed Erlang.
+
+If you are using process IDs instead of registered names across distributed Erlang clusters,
+keep in mind that if the remote node crashes and restarts, the pid on the restarted node might be reused.
+This could result in a process other than the intended one receiving your message.
+
+
+*** Riak Core
+
+Riak Core is a framework that provides:
+- an eventually consistent replicated data model
+- on a system of masterless peer nodes
+- providing high availability
+- and helping guarantee no single point of failure.
+
+built on top of distributed Erlang
+
+foundation of the distributed Riak key-value store
+based on ideas from the 2007 Dynamo paper from Amazon
+http://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf
+
+Ideal framework for systems that require high availability
+and the need to self-heal after node or network failures.
+
+Riak Core runs on a cluster of physical nodes
+overlaid with a system of virtual nodes, also known as vnodes.
+
+The number of vnodes is configurable,
+but a typical Riak Core cluster includes 15-20 physical nodes
+that collectively host 256 vnodes.
+
+Each vnode claims a range of the 160-bit integer space
+of the SHA-1 hash function, which Riak Core uses as the basis of its consistent hashing system.
+
+Consistent hashing spreads key-value data evenly across the cluster
+while minimizing the amount of data relocation
+required as physical nodes are operationally added to or removed from the cluster.
+
+To store data in a Riak Core cluster, a client sends a write request including both key and value.
+Riak Core hashes the key to obtain its hash value,
+then determines which vnode owns the range of 160-bit values that includes that hash value.
+Because Riak Core replicates each write, it first determines the replication factor for the request,
+which is called N and typically defaults to 3.
+It then stores N copies of the data, one in that primary vnode
+and the rest in the vnodes that respectively own the next N-1 hash ranges.
+Riak Core considers the write complete when the number of written copies equals the write factor, W.
+By default, W is N/2+1, which is 2 if N is 3.
+
+To read data from a cluster, a client sends a request including the key.
+Riak Core first hashes the key to determine the primary vnode that should be holding the requested value.
+It then requests the value from that vnode and the N-1 next consecutive vnodes,
+and waits for the read factor, called R, to be fulfilled.
+Like W, by default R is N/2+1, which is 2 when N is 3.
+Once two copies of the value are successfully read, Riak Core returns the requested value to the client.
+
+When a Riak Core cluster is first created, its physical nodes claim ownership of vnodes
+such that adjacent vnodes are not stored on the same physical node.
+Thus, by storing replicas in consecutive vnodes,
+and assuming the cluster comprises at least the minimum recommended five physical nodes,
+Riak Core tries its best to guarantee the replicas are stored on different nodes.
+
+Should any physical node crash or become unreachable,
+the other replicas can still respond to requests for reading or writing that data,
+thus providing availability even if the cluster is partitioned.
+
+When looking up a value, the hash of the key points to the vnode,
+which in turn points to the primary Erlang node responsible for that value.
+
+N = 160/64
+| Key Range | 1*2^N             | 2*2^N             | 3*2^N             | 4*2^N  | 63*2^N  |
+| VNodes    | vnode1            | vnode2            | vnode3            | vnode4 | vnode64 |
+| Nodes     | vnodes:1,17,33,49 | vnodes:2,18,34,50 | vnodes:3,19,35,51 |        |         |
+
+Reshuffling (when nodes get added or taken out of service).
+
+Assume that our cluster has 16 nodes
+and we take *Node 1* (with vnodes 1,17,33,49) permanently out of service.
+
+Riak Core redistributes vnodes 1, 17, 33, and 49 across existing nodes
+without needing to reshuffle all of the data across all nodes.
+
+And if a new node is put into production,
+four vnodes will be moved to it from their current locations,
+affecting only the nodes where the vnodes are located.
+
+Riak Core nodes are peers, and there is no master node.
+Nodes use a *gossip protocol* to communicate shared information
+such as cluster topology changes
+and the vnode claims to other randomly selected nodes.
+
+If updates to the cluster topology were missed on particular nodes for whatever reason,
+the gossip protocol forwards these changes, ensuring that the system heals itself.
+
+Riak Core uses *hinted handoffs* (подсказка, куда передано управление)
+to ensure that N copies of the data are stored,
+even if the primary vnode or some of the replica vnodes are down or unreachable because of a network partition.
+
+In such a case, Riak Core stores the data in an alternative vnode
+and gives that vnode a hint as to where the data really should be stored.
+When the unreachable vnodes again become available,
+the alternative vnodes hand the data off to them, thereby healing the system.
+
+Hinted handoffs are part of Riak Core's *sloppy quorums*.
+Writes require W acknowledgments to be considered successful,
+and similarly reads are considered successful with R results,
+but Riak doesn't care whether those quorums comprise primary or alternative vnodes
+(hence the term "sloppy" -- неряшливый).
+
+If Riak were to instead use strict quorums, which consist only of primary vnodes,
+the result would be diminished (уменьшеная) system availability
+when primaries were down or unreachable.
+
+In cases where nodes return different values without achieving a quorum,
+Riak Core tries to resolve the conflicting values using *dotted version vectors* (DVVs).
+
+DVVs provide a way to identify a partial ordering of write events for a given value
+that can help determine which of the values is the correct one.
+
+This ordering is based not on timestamps,
+which are too unreliable and too difficult to keep synchronized across a cluster of nodes,
+but rather on logical clocks
+based on monotonically increasing counters at each node that acts on the value.
+
+If the DVV information is not enough to resolve the conflict,
+all conflicting values of the state are returned to the client as sibling values,
+and the conflict must then be resolved by the client application,
+presumably using domain-specific knowledge to make its decision.
+
+NkCLUSTER
+https://github.com/NetComposer/nkclusterand
+a layer on top of Riak Core
+written to create and manage clusters of Erlang nodes
+and to distribute and schedule jobs on the cluster.
+
+NkDIST
+https://github.com/NetComposer/nkcluster
+library that evenly distributes processes, automatically moving them
+when the Riak Core cluster is rebalanced through the addition or removal of nodes.
+
+Little Riak Core Book
+Mariano Guerra
+https://marianoguerra.github.io/little-riak-core-book/
+
+
+
+*** Scalable Distributed Erlang
+
+SD Erlang emerged from the RELEASE research project at the University of Glasgow.
+
+at the time of writing it was not production-ready
+
+allow systems to scale to tens of thousands of nodes
+
+The basic approach is to reduce network connectivity and the namespace
+through a small extension to the existing distributed Erlang.
+
+SD Erlang defines a new layer called an *s_group*.
+Nodes can belong to zero, one, or more s_groups,
+and nodes that belong to the same s_group transitively share connections and a namespace.
+
+A namespace is a set of names registered using the global:register_name/2 function in distributed Erlang
+or the s_group:register_name/3 function in SD Erlang.
+Names registered in distributed Erlang are replicated on all connected normal (not hidden) nodes.
+In SD Erlang, the name is replicated on all nodes of the given s_group.
+
+two s_groups named G1 and G2. Each contains three Erlang nodes.
+G1:{A,B,C}, G2:{C,D,E}.
+Because node C is shared by both s_groups, it can transmit messages between nodes in different s_groups.
+Node C is called a gateway.
+
+Programmer can arrange nodes in different configurations, e.g., clustering nodes and connecting them via gateways.
+
+*semi-explicit placement* controls the placement of new nodes
+based on communication distances to other nodes and on node attributes.
+
+Node attributes are hardware-, software-, and programmer-defined characteristics
+that enable them to be aware of their unique characteristics and their neighboring nodes.
+
+Communication distances use the time it takes to transfer data from one node to another as a metric.
+Assuming connections with equal bandwidth, shorter transfer times correspond to smaller communication distances between nodes.
+
+
+*** Sockets and SSL
+
+On extremely high volume systems, bottlenecks can occur:
+- in the global name server,
+- rex (что это?),
+- net kernel
+- distributed Erlang port itself
+
+which, even if fast, is capable of handling only one request at a time,
+as it's designed for control messages rather than for data transfer.
+
+Or you might want to avoid distributed Erlang for security reasons.
+
+Adding a thin layer above the ssl or gen_tcp libraries starts making sense.
+You open one or more sockets between the nodes, controlling the flow of information sent and received.
+
+SSL between Frontend and Backend nodes, but distributed erlang between Backend and Service nodes.
+
+
+*** Service Orientation and Microservices
+
+Another pattern for creating systems that scale is microservices and service-oriented architectures (SOA).
+
+Both are similar in concept to the client-server paradigm
+where processes and nodes (or node families) provide services to other nodes and processes.
+These services, often standalone or loosely coupled,
+together provide the functionality required by your system.
+
+They are often expressed in terms of an API.
+
+Services should be packaged in a generic enough way
+to encourage reusability not just among other services, but also across systems.
+
+Services are connected together by a service bus.
+They use a protocol that describes how services exchange and interpret messages.
+
+*service metadata* describes what each service does and the data it requires.
+That allows nodes to dynamically configure and publicize their services,
+which in turn allows other services to dynamically discover and use them.
+
+The messages themselves are often defined using JSON, XML, Protocol Buffers, Erlang terms, or even OMG IDL.
+Requests can be sent using SOAP, HTTP, or AMQP.
+You could use web services, Java RMI, Thrift bindings, or even Erlang-based RPCs and message passing.
+
+Certain message buses have the added benefit of
+helping throttle requests and dealing with load regulation and backpressure.
+
+Standardized protocols allow you to combine ready-made components or standalone nodes,
+possibly implemented in multiple programming languages.
+
+Overhead:
+- size of the data shared across nodes (непонятно)
+- encoding and parsing of the requests and replies.
+
+*Gproc* is an application by Ulf Wiger used for service discovery.
+https://github.com/uwiger/gproc
+It provides a registry where you can store metadata that describes process roles and characteristics.
+It allows you to use any Erlang term to register a process, and allows multiple aliases to a single process.
+The registry is global, allowing the process metadata to be distributed and accessed across multiple nodes.
+
+
+*** Peer to Peer
+
+Peer-to-peer (p2p) architectures are probably the most scalable distributed architectural patterns of all.
+
+- completely decentralized
+- consist of nodes of the same type
+
+Every node has the same privileges, capabilities, and responsibilities.
+
+Protocols: BitTorrent, Gnutella, Gossip, and Kazaa.
+
+P2p nodes tend to form connections in unpredictable and rapidly changing ways, but with low overhead.
+However, passing data through multiple nodes to get to its ultimate destination can result in extra overall load on the network.
+
+Ideal for systems that need to continue executing in partitioned networks and do not require strong consistency.
+
+
+*** Interfaces (API)
+
+Interfaces are not only used by other nodes when sending requests;
+they will be used to implement the business logic,
+to test the nodes on a standalone basis,
+and to run end-to-end tests of the system.
+
+
+** Chapter 14. Systems That Never Stop
+
+You need at least two computers to make a fault-tolerant system.
+
+Error-handling techniques, fault isolation, and self-healing
+that apply to single-node systems
+also help immensely when multiple nodes are involved,
+allowing you to transparently distribute your processes across clusters
+and use the same failure detection techniques you use on a single node.
+
+You can use the same proven error-handling techniques,
+such as monitors, links, and exit signals,
+within your node as well as within your distributed environment.
+The only difference will be latency.
+
+We focus on data replication and retry strategies across nodes and computers,
+and the compromises and tradeoffs needed to build systems that never stop.
+
+*Availability* defines the uptime of a system over a certain period of time.
+*High availability* refers to systems with very low downtime, software maintenance and upgrades included.
+A realistic number often achieved with Erlang/OTP is 99.999% uptime (5 девяток),
+equating to just over 5 minutes of downtime each year, upgrades and maintenance included.
+
+Availability is a term that encompasses the following additional concepts:
+Fault tolerance, Resilience, Reliability.
+
+
+*** Fault Tolerance
+
+*Fault tolerance* refers to the ability of a system to act predictably under failure.
+
+Acting predictably can mean
+looking for alternative nodes and ensuring that requests are fulfilled,
+or just returning errors back to the callers.
+
+There is no practical difference between a slow node and a dead node.
+Я не согласен, разница есть.
+slow node таки выполнит запрос и внесет изменения в состояние (в БД), хотя клиент ответа не получит.
+deal node не изменит состояние.
+Это со стороны клиента нет разницы, клиент получит error (timeout) в обоих случаях.
+
+Your front-end nodes need to be aware of all these conditions and handle the resulting uncertainty.
+This is done through unique identifiers, idempotence, and retry attempts.
+
+The last thing you want is for your purchase request to time out
+and for the client to keep on retrying until a request is actually acknowledged.
+You might wake to discover you purchased 50 copies of the same book.
+
+Action can time out due to network issues, but succeed asynchronously after the time out.
+This is one of the biggest challenges of asynchronous distributed systems.
+
+
+*** Resilience
+
+*Resilience* is the ability of a system to recover quickly from failure.
+
+If a node goes down, a heartbeat script triggers an immediate restart.
+
+By isolating functionality in manageable quantities in different node types,
+isolating failure becomes a straightforward and easy task.
+If you have a node that does too much,
+you increase the possible causes of a node crash through increased complexity,
+and you increase the recovery time.
+
+If you have a client that automatically tries to reconnect and send a request after a failure,
+make sure it uses a *back-off algorithm* to regulate the frequency of its retries.
+
+*Cascading failure*
+Picture your system with a few million connected devices
+handling a couple hundred thousand requests per second experiencing a 1-minute outage.
+The outage will result in all the devices trying to reconnect and send requests,
+creating a surge in traffic.
+This surge increases for every second of downtime,
+hitting the system with force as soon as it becomes operational again.
+If not handled properly, this will cause more front-end nodes to terminate,
+creating an even larger surge on the remaining ones
+and taking out the next batch until there are none left.
+
+The easiest variant of a back-off algorithm in a client is based on Fibonacci,
+where the interval between retries increases from 1 second to 2, 3, 5, 8, and 13 seconds, respectively,
+capped at a large number such as 89, 144, or more seconds.
+
+An *exponential back-off* algorithm is one that increases the retry interval between failed requests exponentially.
+
+Random delays created by a *random back-off* algorithm.
+multiple nodes issue their retries at different times.
+
+
+*** Reliability
+
+The *reliability* of a system is its ability to function under particular predefined conditions.
+These conditions often include failure and inconsistency.
+
+System has to continue functioning
+even when components that comprise it fail themselves
+or when data becomes inconsistent because it fails to replicate across nodes.
+
+Components:
+- hardware
+- software
+- data
+- state
+
+A *single point of failure* means that if a particular component in your system fails, your whole system fails.
+That component could be a process, a node, a computer, or even the network tying it all together.
+This means that in order for your system to have no single point of failure,
+you need to have at least two of everything.
+
+At least two:
+- computers with software distributed and running a failover strategy across them
+- copies of your data and state
+- routers, gateways, and interfaces
+- alternative power supplies (or battery backups)
+- And if you have the luxury, two geographically remote data centers.
+
+Having only two of everything might itself be a problem waiting to happen,
+since if one of something goes down, the remaining instance automatically becomes a single point of failure.
+For this reason, using three or more instances instead of just two is normally a given
+when high reliability is a critical requirement.
+
+All of this comes at a higher bandwidth and latency cost.
+
+Availability becomes a question of costs, tradeoffs, and risks.
+The financial damage caused by a network outage might be less
+than the cost of installing a redundant network or having redundant hardware,
+turning it into a business decision.
+
+The node used is chosen by the load balancer using a variety of strategies:
+- random,
+- round robin,
+- hashing,
+- node with the least CPU load
+- the one with the smallest number of open TCP connections.
+
+We prefer hashing algorithms, as they are fast and give you predictability and consistency with low overheads.
+When troubleshooting a request, having a deterministic route across nodes
+makes debugging much easier.
+
+В чем разница между Fault tolerance и Reliability?
+"or just returning errors back to the callers" -- видимо в этом.
+Fault tolerance может вернуть ошибку, просто это будет не 500 ошибка, а 4хх.
+а Reliability всегда выполняет запрос.
+
+
+*** At most once, exactly once, and at least once
+
+There are three approaches you can take for every request.
+
+*at least once*
+If you are logging on to the system
+and the first logic node is so slow that the front-end node tries another one and succeeds with it,
+the worst-case scenario is that you log on twice and two sessions are created,
+one of which will eventually expire.
+
+if you are sending an SMS or an instant message, you might be happy with the *at most once* approach.
+The loss of a few messages is acceptable relative to the load and the cost associated with guaranteed delivery.
+
+What if you were sending money?
+You need the *exactly once* approach.
+
+Errors that should worry us are timeouts, software bugs, or corrupt state
+causing a process or node to terminate abnormally,
+leaving the system in a potentially unknown or undefined state.
+
+If you do not receive a response, is it because of the request never reaching the remote node,
+because of a bug in the remote node,
+or because the acknowledgment and reply of the successful execution got lost in transit?
+
+The system could be left in an inconsistent state and need cleaning up.
+In some systems, the cleanup is executed automatically by a script.
+In other cases, cleaning up might require human intervention.
+Having comprehensive logs becomes critical.
+
+A common pattern in achieving *exactly once* semantics
+is to use unique sequence numbers in the client requests.
+
+Client resends the request with the same identifier,
+and the logic node identifies it as a duplicate request and returns the original reply.
+You are still not guaranteed success,
+as the connectivity between the client and the server might not come up again.
+But it will work in the presence of transient errors.
+
+*Idempotence* -- user can apply an operation multiple times with the same effect as applying it once.
+
+Идемпоте́нтность — свойство объекта или операции
+при повторном применении операции к объекту
+давать тот же результат, что и при одинарном.
+
+For example, if a request changes a customer's shipping address,
+whether the system performs the request successfully once or multiple times has the same result.
+Such a request can actually be executed multiple times.
+With our request identification scheme, though, the second and subsequent executions never occur.
+
+
+*** Sharing Data
+
+When you are thinking about your strategies for avoiding a single point of failure and for recovery,
+you have to make a new set of decisions
+about whether and how you are going to replicate data across your nodes.
+
+You can defer some of these decisions to when you stress test and benchmark your system.
+
+One of the hardest things when dealing with distributed systems
+is accessing and moving your data.
+
+You have three approaches you can choose from:
+share nothing, share something, and share everything.
+
+
+*** Share nothing
+
+No data or state is shared.
+
+Can result in linearly scalable systems.
+
+Because each collection of nodes has an independent copy of its own data and state, it can operate on its own.
+
+When you need to scale, all you need to do is add more infrastructure and reconfigure your load balancers.
+
+The downside of this strategy is that if you lose a node, you lose the state and all of the data associated with it.
+Для временных данных, типа сессий, годится.
+
+You also need to choose how to route your requests across nodes,
+ensuring that each request is routed to the logic node that stores its matching session data.
+
+
+*** Share something
+
+Duplicate some but not all of your data.
+
+But it trades off some scalability,
+because the session data needs to be copied across multiple nodes
+every time a client logs in and deleted when the session is terminated.
+
+Things get even more expensive
+whenever a node is added to the cluster or restarts,
+because sessions from the other nodes might have to be copied to it and kept consistent.
+
+The share-something architecture is ideal for use cases
+where you are allowed to lose an occasional odd request
+but need to retain state for more expensive operations.
+
+Think of an instant messaging server.
+The most expensive operation, and biggest bottleneck, is users logging in and starting a session.
+The session needs to access an authentication server,
+retrieve the userэs contact list,
+and send everyone a status update.
+
+Imagine a server handling a million users.
+The last thing you want as the result of a network partition or a node crash is
+for a million users to be logging back on,
+especially when the system is still recovering from having sent 30 million offline status updates
+(assuming 60 contacts per user, of whom half are online).
+
+One good solution is to distribute the session record across multiple nodes.
+What you do not share, however, are the status notifications and messages.
+You let them go through a single node with the "at most once" approach.
+
+If the node crashes or is separated from the rest of the cluster,
+you either delay the delivery of the notifications and messages
+or lose some or all of them.
+
+
+*** Consistency
+
+There are multiple forms of *consistency*
+that differ due to varying degrees of visibility, ordering, and replica coordination.
+
+In a perfect system, all nodes would see all updates at the same logical time and in the same order.
+No reads would ever return stale data;
+and there would be no latency anomalies,
+crashed nodes, network partitions, or lost messages.
+
+*Eventual consistency* is weak form of consistency,
+where updates at different replicas can occur in different orders,
+and reads can return stale values.
+
+It can be valuable for applications
+requiring read and write availability
+and predictable latency
+even when the system is operating under conditions of partial failure,
+as long as those applications can handle occasionally reading stale data.
+
+*monotonic read* and *monotonic write*
+guarantees related to recency (новизна)
+
+When you read a value under a monotonic read model,
+you are guaranteed that you will never again see a value older than the one you just read.
+
+With the monotonic write model you are guaranteed
+that any update you issue for a value
+will finish prior to any further updates you issue for the same value.
+
+These ordering guarantees come at a cost of increased coordination across the distributed system,
+and thus potentially increased latencies and lower availability.
+
+Still stronger ordering guarantees are provided with the *read your own writes* consistency level.
+Combination of monotonic reads and writes.
+Your update for a given value is guaranteed to never act on an instance
+older than your most recent read of the same value.
+
+Even higher degrees of consistency can be achieved using *consensus protocols*
+such as *Paxos*, *Zookeeper Atomic Broadcast* (ZAB), and *Raft*.
+Where a majority of replicas must vote and agree on updates for a given value.
+
+These protocols can deliver strong consistency guarantees,
+but to achieve them they require a high degree of coordination among replicas
+and so can have negative impacts on latency and availability.
+
+If your application requires this level of consistency guarantee,
+you are far better off using an implementation of a proven consensus protocol
+than trying to invent your own.
+For example, *Riak Ensemble* implements Multi-Paxos, an optimized version of basic Paxos.
+https://github.com/basho/riak_ensemble
+
+One sometimes confusing point about these distributed system consistency levels
+is that they are different from the "C"
+in the Atomicity, Consistency, Isolation, and Durability (ACID) properties of transactional databases.
+
+In ACID, consistency means that effects of transactions become visible upon their completion
+and that no transactions violate database constraints.
+
+
+*** Share everything
+
+What if you want to make your system as fault tolerant and resilient as possible?
+You might be dealing with money, shares, or other operations
+where inconsistency or the risk of losing a request is unacceptable.
+
+Each transaction must execute exactly once,
+its data has to be strongly consistent,
+and operations on it must either succeed or fail in their entirety.
+
+All your data is shared across all of the nodes, any of which might take over the requests.
+
+If there is any uncertainty over the outcome of a request, an error is returned to the user.
+
+*When things go wrong, they have to be reconciled after the fact*.
+For example, if you try to withdraw from multiple ATMs more funds than you have in your account,
+you get the money, but then later the bank penalizes you for overdrawing your account.
+
+But with no single point of failure, using redundant hardware and software,
+the risk for this error should be reduced to a minimum.
+
+If a node terminates, the other one takes over.
+Should the node recover, it will not accept any requests
+until all of the data from the active node
+has been copied over and is consistent with other nodes.
+
+We call this *primary-primary replication*.
+This contrasts with *primary-secondary replication*,
+where a single primary node is responsible for the data.
+
+ The secondary nodes can access the data,
+but must coordinate any destructive operations
+such as inserts or deletes
+with the primary if they wish to modify the data.
+
+If the primary is lost,
+either the system stops working entirely,
+or it provides a degraded service level
+where writes and updates are not allowed,
+or one of the secondaries takes over as primary.
+
+The share-everything architecture is the most reliable of all data-sharing strategies,
+but this reliability comes at the cost of scalability.
+It tolerates the loss of nodes without impacting consistency of data,
+but if some nodes go wrong, it also loses availability.
+
+This strategy is also the most expensive to run and maintain,
+because every operation results in computational overhead and multiple requests across the network
+to ensure that the data is kept replicated and consistent.
+
+You will need *distributed transactions* when dealing with data
+such as money or shares you cannot afford to lose.
+
+
+*** CAP Confusion
+
+The CAP theorem, a conjecture (гипотеза)
+originally put forward in 2000 by Eric Brewer
+and formally proven in 2002 by Seth Gilbert and Nancy Lynch.
+
+In any distributed system it is impossible to fully provide
+consistency, availability, and partition tolerance at all times.
+
+For the purposes of CAP, these properties are defined as follows:
+- *Consistency* guarantees that clients get correct responses to all requests.
+- *Availability* guarantees that the system eventually services every request sent to it, for both reads and updates.
+- *Partition tolerance* guarantees continued system operation even when the network or nodes fail and messages are delayed or lost.
+
+This stems from CAP having often been explained as
+requiring you to "pick two" of the three properties
+when designing a distributed system.
+Since one of the properties, partition tolerance, is inherent in the definition of distributed systems
+and is thus automatically chosen for you,
+the only realistic choice left was between consistency and availability.
+
+Real distributed systems tradeoffs are never as simple as the flawed "pick two" CAP dilemma.
+
+Delays and failure are inherent in distributed computing systems,
+both in hardware and software, and thus they can never be downplayed or ignored.
+
+Achieving full consistency and availability is impossible in any practical distributed system.
+
+In real-life systems, not only do the choices and tradeoffs
+between consistency and availability depend highly on the application,
+but different parts of the same application can require different tradeoffs.
+
+For example, fitness tracker.
+User registration requires strong consistency to ensure two users don't register with the same username,
+Data delivery portions of the application, having a highly available data store
+is more important than providing fully consistent updates to all interested parties.
+
+Some databases, such as Riak, can simultaneously support
+both strong consistency and eventual consistency,
+letting the application choose what it needs.
+
+
+*** Tradeoffs Between Consistency and Availability
+
+The choices you make in your recovery strategy are all about tradeoffs between consistency and availability,
+while your data-sharing strategy is about tradeoffs between reliability and availability.
+
+Recovery Strategy:
+- Exactly once  (C+, A-)
+- At least once (C=, A=)
+- At most once  (C-, A+)
+
+Sharing Data:
+- Share everything (R+, A-)
+- Share something  (R=, A=)
+- Share nothing    (R-, A+)
+
+
+** Chapter 15. Scaling Out
+
+Distributing for scale
+and replicating for availability
+both rely on multiple instances of every node running on separate computers.
+
+But scaling out is not only about adding computing capacity.
+Scaling out must be carefully integrated and orchestrated with your consistency and availability models.
+
+Tests (performance tests) need
+to understand your systemâ's limitations
+and ensure it can handle, without failing, the capacity for which it was designed.
+This allows you to put safeguards in place, ensuring users do not overflow the system with requests it can't handle.
+
+The *scalability* of a system is
+its ability to handle changes in demand
+and behave predictably,
+especially under spikes or sustained heavy loads.
+
+Scalability can be achieved *vertically* (scaling up),
+by throwing more powerful computers at the problem,
+or *horizontally* (scaling out), by adding more nodes and hardware.
+
+*Elasticity*, the ability to add and remove nodes (and computers) at runtime
+so you can cater not only for failure,
+but also for peak loads and systems with a growing user base.
+
+
+*** Amdahl's Law (Закон Амдала)
+https://ru.wikipedia.org/wiki/%D0%97%D0%B0%D0%BA%D0%BE%D0%BD_%D0%90%D0%BC%D0%B4%D0%B0%D0%BB%D0%B0
+
+is used to predict the maximum speedup of your parallel program when adding cores.
+Program will be as fast as its slowest component.
+When dealing with parallelism and concurrency, the slowest component is your sequential code.
+
+S(N) = 1/(P + ((1-P) / N))
+
+S(N) is the speedup the system can achieve
+when executing with N cores,
+and P is the proportion of the program that can be made parallel.
+
+if 5% of your code base is sequential, your maximum speedup will be 20 times,
+and if 50% of your code is sequential, your maximum speedup will be 2 times.
+
+В случае, когда задача разделяется на несколько частей,
+суммарное время её выполнения на параллельной системе
+не может быть меньше времени выполнения самого длинного фрагмента.
+
+Не для всякой задачи имеет смысл наращивание числа процессоров в вычислительной системе.
+
+Если учесть время, необходимое для передачи данных между узлами вычислительной системы,
+то зависимость времени вычислений от числа узлов будет иметь максимум.
+С определенного момента добавление новых узлов в систему будет увеличивать время расчёта задачи.
+
+When we reach a certain limit,
+adding more cores improves performance only marginally.
+This is where it makes sense to scale your system
+by partitioning your data set and operations into distributed nodes, running them in parallel.
+
+
+*** Scaling with Native Code
+
+A little-known fact about Erlang/OTP is its excellence as an integration platform.
+
+It supports a variety of standard networking protocols,
+allowing it to support applications that communicate with disparate components
+and bridge them together.
+
+Excellent networking socket APIs.
+
+Ports allow applications to call and exchange data with external programs.
+
+Scalable systems often comprise multiple components
+written in different programming languages
+because different languages have complementary strengths and weaknesses.
+
+Erlang/OTP provides support for calling non-Erlang functions,
+termed native implemented functions (NIFs), directly from Erlang code.
+
+NIFs look like regular Erlang functions.
+They accept regular Erlang terms as arguments and return regular terms as well,
+but under the covers these functions are implemented in a different language, typically C or C++.
+However, they execute directly within the Erlang runtime.
+
+When the runtime loads an Erlang module containing NIFs,
+it loads along with it a shared library containing the native function implementations,
+and then patches the module's BEAM code with instructions
+that invoke the native functions instead.
+
+The runtime provides a C API for NIFs
+allowing them to access and create Erlang terms,
+send messages to other processes, raise exceptions,
+and even schedule other NIFs for future execution.
+
+Misbehaving NIFs can wreak havoc (опустошение) on the Erlang VM.
+Forget the *let it crash* philosophy if you're writing a NIF;
+they execute directly on the runtime's scheduler threads,
+so if a NIF crashes, it takes the entire VM down with it.
+
+You can also inflict a more insidious (коварный) and slower death on the VM
+by making your NIFs run for more than 1-2 milliseconds at a time,
+as this causes the NIF to hog (заграбастать) a VM scheduler thread
+and disrupt its carefully choreographed interactions with other scheduler threads.
+
+Over time, such disruptions can eventually lead to a phenomenon known as *scheduler collapse*
+where schedulers think they have no work to do
+and mistakenly go to sleep, leaving just one scheduler to handle the entire workload.
+
+*Dirty schedulers* do not have the same set of constraints as normal schedulers
+and are specifically designed for running only NIFs and native code.
+Dirty schedulers are marked experimental in Erlang 17 and 18, though,
+and so they are turned off by default.
+We hope that by Erlang 19, they will be a regular Erlang runtime feature
+available for any application that needs them.
+
+
+*** Capacity Planning
+
+Optimize the hardware and infrastructure in terms of both efficiency and cost.
+
+Its purpose is to try to guarantee
+that your system can withstand the load it was designed to handle,
+and, with time, scale to manage increased demand.
+
+The only way to determine the load and resource utilization
+and balance the required number of different nodes working together
+is to simulate high loads, testing your system end to end.
+
+You try to reduce the costs of hardware, operations, and maintenance.
+
+You will be measuring and optimizing your system in terms of *throughput* and *latency*.
+
+*Throughput* refers to the number of units going through the system.
+Units could be measured in number of requests per second when dealing with uniform requests,
+but when the CPU load and amount of memory needed to process the requests vary in size (think emails or email attachments),
+throughput is better measured in kilobytes, megabytes, or gigabytes per second.
+
+*Latency* is the time it takes to serve a particular request.
+Latency might vary depending on the load of your system,
+and is often correlated to the number of simultaneous requests going through it at any point in time.
+
+We discussed the tradeoffs between consistency and availability
+based on your recovery and data-sharing strategies and distributed architectural patterns.
+You might not have realized it, but you were also making tradeoffs with scalability:
+
+Recovery Strategy:
+- Exactly once  (C+, S-)
+- At least once (C=, S=)
+- At most once  (C-, S+)
+
+Sharing Data:
+- Share everything (R+, S-)
+- Share something  (R=, S=)
+- Share nothing    (R-, S+)
+
+The most scalable framework is *SD Erlang*.
+With it, you effectively share data within an s_group, but minimize what is shared across s_groups.
+Data and workflows shared among s_groups go through gateway nodes.
+By controlling the size of s_groups and the number of gateways,
+you can have strong consistency within an s_group and eventual consistency among s_groups.
+
+*Riak Core* comes second.
+It can scale well by using consistent hashing
+to shard your data
+and load balancing jobs across the cluster.
+
+Lastly, a distributed Erlang cluster is limited in scale
+but does well enough to cater (обслуживать) to the vast majority of Erlang systems.
+Even if you are aiming for tens of thousands of requests per second, you will often find it is more than enough.
+
+If you want a truly scalable system,
+you need to reduce the amount of shared data to a minimum
+and, if you have to share data, use eventual consistency wherever appropriate.
+Use asynchronous message passing across nodes,
+and in cases where you need strong consistency,
+minimize it in as few nodes as possible,
+placing them close to each other so as to reduce the risk of network failure.
+
+
+*** Capacity Testing
+
+Capacity testing is a must
+when working with any scalable and available system
+to help ensure its stability
+and understand its behavior under heavy load.
+
+What is your system's maximum throughput before it breaks?
+How is the system affected by increased utilization or the loss of a node?
+And is the latency of these requests under different loads acceptable?
+
+You need to ensure your system
+remains stable under extended heavy load,
+recovers from spikes,
+and stays within its allocated system limits.
+
+*Soak testing*
+This generates a consistent load over time
+to ensure that your system can keep on running
+without any performance degradation.
+Soak tests can continue for months.
+
+*Spike testing*
+This ensures you can handle peak loads and recover from them quickly and painlessly.
+
+*Stress testing*
+This gradually increases the load you are generating
+until you hit bottlenecks and system limits.
+Bottlenecks are backlogs in your system whose symptom is usually long message queues.
+System limits include running out of ports, memory, or even hard disk space.
+When you have found a bottleneck and removed it,
+rerun the stress test again to tackle the next bottleneck or system limit.
+
+*Load testing*
+This pushes your system at a constant rate close to its limits,
+ensuring it is stable and balanced.
+Run your load test for at least 24 hours to ensure there is no degradation in throughput and latency.
+
+Don't underestimate the time, budget, and resources it takes
+to remove bottlenecks and achieve high throughput with predictable latency.
+You need hardware to generate the load,
+hardware to run your simulators,
+and hardware to run multiple tests in parallel.
+With crashes that take days to generate, running parallel tests with full visibility of what is going on is a must.
+
+
+*** Generating load
+
+You can use existing open source tools and frameworks such as Basho Bench, MZBench, and Tsung;
+commercial products; or SaaS load-testing services.
+
+Some tools allow you to record and replay live traffic.
+
+Or if you want to simulate complex business client logic or test simple scenarios,
+it might be easier to write your own tests.
+
+You will soon discover that to test an Erlang system, you will most likely need a load tool written in Erlang.
+Сомнительное утверждение.
+
+If you are connecting to third-party services or want to test node types on a stand-alone basis,
+you will need to write simulators. (Mocks).
+
+We once ran load tests on an autodialer we were writing,
+forgetting to divert the requests to the simulators.
+The error caused a major outage of the IP telephony provider we were planning to use.
+They were not too happy. Nor were we, as we got kicked out and had to find and integrate
+with a new provider days before going live.
+
+
+*** Balancing Your System
+
+In a properly balanced Erlang system
+running at maximum capacity,
+the throughput should remain constant while latency varies.
+
+If 20K RPS gives 1 sec latency, than 40K RPS will give 2 sec latency.
+
+The BEAM VM is one of the few virtual machines to display this property,
+providing predictability for your system even under sustained extreme loads.
+
+Consider your system stable only when all performance bottlenecks have been removed or optimized,
+leaving you to deal with issues arising from your external dependencies
+such as I/O, your filesystem, or network
+or external third-party services not being able to handle your load.
+
+
+*** Finding Bottlenecks
+
+When you are looking for bottlenecks on a process and node basis,
+most culprits are easily found by monitoring process memory usage and mailbox queues.
+
+Memory usage is best monitored using the erlang:memory() BIF,
+which returns a list of tuples with the dynamic memory allocations
+for processes, ETS tables, the binary heap, atoms, code, and other things.
+
+If you see the atom table or binary heap increasing in size over time without stabilizing,
+you might run into problems days, weeks, or months down the line.
+
+Message queues can be monitored using the i() or regs() shell commands.
+
+If using the shell is not viable because you are working with millions of processes,
+the *percept* and *etop* tools will often work, as might the *observer* tool.
+
+If you are collecting system metrics and feeding them into your OAM infrastructure,
+you can use them to locate and gain visibility into bottlenecks.
+
+The biggest challenge, however, is often not finding the bottlenecks,
+but creating enough load on your system to generate them.
+
+One approach to detecting some of your bottlenecks is
+to run your Erlang virtual machine with fewer cores using the erl +S flag,
+or stress testing the node on less powerful hardware.
+
+
+*** Synchronous versus asynchronous calls
+
+Most commonly, bottlenecks manifest themselves through long message queues.
+
+When the scheduler dispatches a process, it is assigned a number of reductions it is allowed to execute,
+and for every operation, it reduces the reduction count.
+The process is suspended when it reaches a receive clause where none of the messages in the mailbox match,
+or the reduction count reaches zero.
+
+When process mailboxes grow in size, the Erlang virtual machine penalizes the sender process
+by increasing the number of reductions it costs to send the message.
+
+It is designed this way
+to give the consumer a chance to catch up after a peak,
+but under sustained heavy load, it will have an adverse (неблагоприятный) effect on the overall throughput of the system.
+
+A trick to regulate the load and control the flow, so as to get rid of these bottlenecks,
+is to use synchronous calls even if you do not require a response back from the server.
+When you use a synchronous call, a producer initiating a request
+will not send a new log request until the previous one has been received and acknowledged.
+Synchronous calls block the producer
+until the consumer has handled previous requests,
+preventing its mailbox from being flooded.
+
+When using this approach, remember to fine-tune your timeout values,
+never taking the default 5-second value for granted,
+and never setting it to infinity.
+
+Reduce the workload in the consumers.
+In the case of log entries, for example, you could process them in batches,
+flushing a couple hundred of them at a time to disk.
+
+You could also offload (разгружать) work to the requesting process,
+making it format the entries instead of leaving that to the server.
+After all, formatting log entries can be done concurrently,
+whereas writing the log entries to disk must take place sequentially.
+
+
+*** System Blueprints
+
+The time has come to formalize all your design choices.
+
+Your *resource blueprint* specifies the available resources on which to run your cluster.
+
+It includes descriptions of hardware specifications or cloud instances,
+routers, load balancers, firewalls, and other network components.
+
+Your *cluster blueprint* is derived from the lessons learned from your capacity planning.
+It is a logical description of your system,
+specifying node families and the connectivity within and among them.
+You also define the ratios of different node types
+you need to have a balanced system capable of functioning with no degradation of service.
+
+Your cluster and resource blueprints are combined in what we call a *system blueprint*.
+
+
+*** Load Regulation and Backpressure
+
+New Year's Eve
+
+Phone calls -- *backpressure* (обратное давление)
+
+You always got the dial tone and were allowed to dial,
+but if you tried to access an international trunk with no available lines,
+your call was rejected with a busy tone.
+So you kept on trying until you got through.
+Backpressure is the approach of telling the sender to stop sending because there's no room for new messages.
+
+SMS -- queue with load regulation.
+
+The mobile operators were applying a technique called load regulation,
+where the flow of requests was diverted to a queue
+to ensure that no requests were lost.
+Messages were retrieved from the queue and sent to the SMS center (SMSC) as fast as it could handle them.
+Messages often arriving in the early hours of the morning.
+
+Together, load regulation and backpressure
+allow you to keep throughput and latency predictable
+while ensuring your system does not fail as a result of overload.
+
+The difference is that load regulation allows you to keep and remember requests
+by imposing limits on the number of simultaneous connections
+and throttling requests using queues,
+while backpressure rejects them.
+
+If you are using load regulation,
+remember that all you are doing is smoothing out your peaks and troughs.
+If you keep on receiving requests at a rate faster than you can handle,
+you will eventually have to stop queuing and start rejecting.
+
+
+*** Little's Law
+
+theorem by John Little
+
+The long-term average number of customers in a stable system L
+is equal to
+the long-term average effective arrival rate, λ,
+multiplied by
+the average time a customer spends in the system, W;
+
+or expressed algebraically: L = λW.
+
+Queue length is equal to the arrival rate, multiplied by the response time.
+
+In most Internet-connected programs,
+the queue length is the number of client requests waiting to be (and currently being) serviced,
+the arrival rate is the number of client requests per time unit being accepted into and serviced by the system,
+and the response time is how long it takes to service one client request.
+
+response time = queue length / arrival rate
+
+In a live system, you cannot control the arrival rate, but it is hopefully constant, even under heavy load.
+What you can control, though, are
+the queue length, by applying backpressure,
+and the throughput, by removing bottlenecks from the request-processing path.
+
+By controlling the queue length and keeping the arrival rate constant
+throughout a balanced system, you control the response time.
+
+The key to getting the values right and applying backpressure at the right time
+is to have full visibility of what is going on in your system and to measure it.
+
+Another common practice to control load is through load balancers.
+Software and hardware load balancers will, on top of balancing requests across front-end nodes,
+also throttle the number of simultaneously connected users
+and control the rate of inbound requests.
+
+Keep in mind that load regulation comes at a cost,
+because you are using queues
+and a dispatcher can become a potential bottleneck that adds overhead.
+
+
+*** Jobs and Safetyvalve
+
+There are two widely used load-regulation applications in Erlang: Jobs and Safetyvalve.
+
+*Jobs*, written by Ulf Wiger, is a scheduler for load regulation of Erlang-based systems.
+It provides a queuing framework
+where each queue can be configured for throughput rate, job type, and number of concurrent requests.
+
+*Safetyvalve* was inspired by Jobs, but is much simpler in scope,
+focusing on queuing mechanisms to protect the system from overloads
+by controlling throughput and the number of simultaneous requests allowed to execute.
+For every queue, you can set the queue type, queue polling frequency,
+and handling of bursts using the token bucket algorithm (описание есть, но непонятное).
+
+
+** Chapter 16. Monitoring and Preemptive Support
+
+Secret sauce to high availability is achieving a high level of visibility into what is going on in your system.
+
+for two purposes:
+- preemptive (упреждающий) support
+- and postmortem debugging
+
+Pick up early warning signs and address problems before they get out of control.
+
+When processes or nodes are restarted automatically,
+you need a snapshot of the state of the system prior to the crash.
+Together with your historical data, the state snapshot will allow you
+to quickly and effectively deal with postmortem debugging,
+figure out what caused the crash, and ensure it never happens again.
+
+If you do not have snapshots of the system,
+debugging will be not be methodical and you will have to rely on guesswork.
+
+The last thing you want to count on
+is for errors to politely manifest themselves
+when you are sitting in front of the computer staring at the screen.
+
+
+*** Monitoring
+
+Anyone can see, through a crash dump report, that a virtual machine ran out of memory.
+But what type of memory caused the crash?
+Was it the atom table,
+the memory taken up by the code,
+the process memory,
+the binary heap,
+or system memory?
+
+Monitoring is done using a combination of the following facilities: *Logs*, *Metrics*, *Alarms*.
+
+*Logs* record state changes in your program.
+A state change could be part of your business logic,
+such as a user logging on and initiating a session,
+or a system state change
+such as a node joining the cluster.
+
+*Metrics* are obtained by polling a value at a particular point in time.
+*System metrics*: CPU utilization and memory usage, ETS table size, the number of open TCP connections.
+*Business metrics*: latency, active sessions, the number of login requests per hour.
+
+*Alarms* are a form of event associated with a state.
+They are raised when certain criteria are met,
+such as running out of disk space
+or hitting concurrent session threshold values.
+Similarly, they are cleared when these criteria are no longer valid.
+
+Monitoring should be developed in conjunction
+with the configuration and management functionality of your system.
+We refer to this functionality as the operations, administration, and maintenance (OAM).
+(хорошо бы, чтобы были четкие определения этих терминов, но в книге нет).
+
+All systems should let you inspect, manage, and do basic troubleshooting
+without any knowledge of Erlang or need to access the Erlang shell.
+
+In the telecom world, this noncritical OAM functionality is put in its own node (or node pair for redundancy).
+Only critical OAM functionality is put in non-OAM nodes,
+usually reduced to a few critical alarms
+and the ability to check the liveness of the node.
+
+OAM nodes can be used to handle both Erlang and non-Erlang components of your software.
+Network, switches, load balancers, firewalls, hardware, OS, and stack.
+
+Open source tools: Graphite, Cacti, Nagios, Chef, or Capistrano
+Proprietary tools
+SaaS providers: Splunk, Loggly, or NewRelic.
+
+Connectivity could be one of many standards and protocols,
+including SNMP
+and standard management information bases (MIBs),
+YANG/NETCONF, REST, web sockets,
+or whatever the flavor of the month might be
+(as long as it is not CORBA).
+
+
+*** Logs
+
+A log is an entry in a file or database that records an event that can be used as part of an audit trail.
+
+Logs are used for a variety of purposes, including
+tracing, debugging, auditing, compliance (соответствие) monitoring, and billing.
+
+Different log entries are usually tagged.
+Common tags include debug, info, notice, warning, and error.
+
+The different ways logs are used
+by different people with varying technical skills and tool sets
+makes it hard to suggest a "one size fits all" approach.
+
+What is important, is to have logs that allow
+to uniquely follow the flow of requests across nodes
+in order to locate issues or gather required data.
+
+(Если учесть, что система распределенная,
+и нужна возможность выбрать логи, относящиеся к конкретной сессии или запросу
+то логи в текстовом файле не годятся. Нужно писать в БД или какой-нибудь Elastic Search)
+
+Users have often added their own log entries to the SASL logs,
+but this isn't recommended
+because it mixes logs of different types and purposes in the same file.
+You will quickly outgrow the capabilities of the SASL logs
+and will definitely want separate files (and possibly formats) for every log type.
+
+*Lager* is one of the most popular open source logging frameworks for Erlang.
+Highly optimized.
+Integrate with traditional Unix logging tools like logrotate and syslog.
+Log levels such as debug, info, notice, warning, error, critical, alert, and emergency
+can be assigned different handlers, allowing you to decide how to manage the information provided.
+Overload protection and throttling.
+
+Assign a unique ID every time a unique request is received by an external client.
+
+Ideally, your logs should create a relational model,
+where a log entry in a file with a unique ID
+is linked to an entry in another file.
+
+As an example, if you are calling an external API,
+create a log entry with the request, the latency, and any unique request ID the external API has provided you.
+If the API request to your external service times out, just replace the result with a timeout tag.
+You can later analyze the log and see whether you need to increase the timeout values.
+
+You can build in the ability to toggle the logging of the messages,
+so that you can switch to retrieving details when you need to debug the situation.
+
+
+*** Metrics
+
+Графики в книге взяты из Wombat. Определенно, Wombat стоит изучения.
+
+Metrics are sets of numeric data collected at regular intervals and organized in chronological order.
+
+You need to retrieve data on the OS and network layers,
+on the middleware layer (which includes the Erlang virtual machine and many of the libraries described in this book),
+and in your business layer.
+
+- Developers use metrics to improve the performance and reliability of the system and troubleshoot issues after they have occurred.
+- DevOps engineers monitor the system to detect abnormal behavior and prevent failures.
+- Operations staff use metrics to predict trends and usage spikes, using the results to optimize hardware costs.
+- Marketing uses them to study long-term user trends and user experience.
+
+Imagine the power of being able to correlate spikes in process memory usage
+or large portions of time spent on garbage collecting data
+with particular user operations such as logging in.
+
+Different values and formats:
+
+*Amount* a discrete or continuous value with incremental and decremental capabilities.
+A common form of amount is *counters*.
+
+*Gauge* (измерение, замер) are a form of counter that provide a value at a particular point in time.
+Typical examples of gauges are to measure memory or hard disk usage.
+
+*Time* is another common measurement, mainly used to measure latency in all levels of the stack.
+
+Data collectors tend to group time readings into *histograms*,
+collections of values (not necessarily only time-related)
+that have had some form of statistical analysis applied to them.
+Histograms may show averages, minimum and maximum values, or percentiles.
+
+*Meter* provides an increment-only counter.
+whose values are evened out with mean rates and exponentially weighted moving averages.
+The adjustments ensure you do not see spikes and troughs that might occur.
+
+A *spiral* is a form of meter with a sliding window count,
+showing the increment of a counter in a particular time frame.
+
+Metrics have a timestamp associated with them.
+They are retrieved and stored in a time series database at regular intervals.
+
+A time series database is optimized to handle data indexed by timestamps.
+(Был про это доклад на highload 2016).
+
+Metrics are often aggregated and consolidated over time to provide overviews on a system level.
+
+Recommended open source applications that focus on metrics include *folsom* and *exometer*.
+They offer some of the basic system metrics you expect out of your Erlang VM,
+and let you create your own metrics on a per node-basis.
+
+
+*** Alarms
+
+Alarms are a subset of events associated with a state.
+While an event will tell you that something happened, an alarm will indicate that something is ongoing.
+
+For instance, an event tells you that a socket was closed abnormally,
+but an alarm warns of your inability to create any socket connections toward an external database.
+
+The alarm is said to remain *active* until the issue is resolved.
+When this happens, the alarm is said to be *cleared*.
+
+Alarms can also be associated with a *severity*.
+Severities include *cleared*, *indeterminate* (неопределенный), *critical*, *major*, *minor*, and *warning*.
+
+They can be based on thresholds or state changes, or a mixture of the two.
+
+In threshold-based alarms, metrics are monitored and the alarm is raised if a limit is exceeded in one of the metrics.
+
+State-based alarms are triggered when a potentially harmful state change occurs.
+Hardware issues such as a cabinet door being opened or a cooling fan failing.
+Other examples include the connectivity toward an external API or database being unresponsive or a node going down.
+
+The *elarm* application is the de facto Erlang-based alarm manager used in production systems to manage alarms.
+It allows you to configure severities and actions,
+as well as implement handlers that forward requests via email or SMS,
+or to external systems such as Nagios or pager duty.
+
+Elarm is what you should be running in your OAM nodes,
+making it the focal point where all of the alarms are collected, aggregated, and consolidated.
+
+Once you've gone live, you will need to configure and fine-tune your alarms.
+This is commonly done when you handle false positives and false negatives.
+
+A false positive is an alarm generated because of a nonissue.
+Eliminate false positives, as too many of them will result in serious alarms being ignored.
+
+A false negative is when alarms should have been raised, but are not.
+
+After every failure or degradation of service,
+review which alarms could have been raised (if any)
+and start monitoring events that might indicate
+that failure or service degradation is imminent (надвигающийся).
+
+Alarms play a critical role in detecting and addressing anomalies
+before they escalate and have been a must in the telecoms space for decades.
+
+
+*** Preemptive Support
+(упреждающий)
+
+*Support automation* is the building of a knowledge base
+that is used to reduce service disruption (сбой)
+by reacting to external stimuli and resolving problems before they escalate.
+
+If you are allowed only minutes of downtime per year,
+downtime is something you need to plan for when designing your system.
+
+It is no good detecting something has gone wrong
+and expecting a human to intervene and manually run a script.
+That script should run through automation.
+
+Automation is achieved through the collection and analysis of metrics, events, alarms, and configuration data.
+
+If certain patterns are detected in the metrics and sequence of events,
+a set of predefined actions are taken, preemptively trying to resolve the problem before it occurs.
+
+It could be something as simple as:
+- deleting files
+- configuring a load balancer
+- or deploying a new node to increase throughput while decreasing latency.
+
+Three main areas of support automation:
+
+*Proactive support automation* is focused on reducing downtime
+using end-to-end health checks and diagnostic procedures.
+It could be implemented through an external system
+that sends requests to test availability, latency, and functionality.
+
+An example of proactive support automation is
+external probes that simulate users sending HTTP requests,
+monitoring the well-being of the system by sending requests to different parts of it.
+
+In our e-commerce example, probes could include tests to ensure that
+the product database is returning search results,
+that users can log on and start a session,
+and that checkout and payment procedures are successful.
+(типа автотесты, которые регулярно выполняются на проде?)
+
+Make sure that the probes run outside of your network.
+
+
+*Preemptive support automation* gathers data
+in the form of metrics, events, alarms, and logs for a particular application;
+analyzes the data;
+and uses the results to predict service disruptions before they occur.
+
+An example is noticing an increase in memory usage,
+which predicts that the system might run out of memory in the near future.
+Actions could include:
+- enabling load regulation and backpressure,
+- request throttling,
+- starting or stopping nodes,
+- and migration of services using capability-based deployment.
+
+
+*Self-support automation* describes the tools and libraries
+that can be used to troubleshoot solutions and to diagnose and resolve problems.
+They are invoked as the result of proactive and preemptive support automation.
+
+
+If you know what needs to be done when an alarm is raised
+or the thresholds of certain metrics are met,
+you should automate actions.
+
+Operations and maintenance applications: os_mon, otp_mibs, and snmp.
