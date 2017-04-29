@@ -1,0 +1,32 @@
+* Scaling Erlang
+http://inaka.net/blog/2011/10/07/scale-test-plan-simple-erlang-application/
+
+Creating a scalable system is not a matter of just writing it in Erlang.
+
+
+* Distributed erlang
+http://emauton.org/disterl/
+
+The protocol Erlang nodes use to communicate is described between the
+[[http://www.erlang.org/doc/apps/erts/erl_dist_protocol.html][distribution protocol]] and [[http://www.erlang.org/doc/apps/erts/erl_ext_dist.html][external term format]] sections of the [[http://www.erlang.org/doc/apps/erts/users_guide.html][ERTS user guide]].
+
+
+
+* Обсуждение riak_core
+
+https://groups.google.com/forum/#!msg/erlang-russian/TVbVHhdS9lM/FLHGDrjAzbYJ
+
+Valery Meleshkin:
+   Плюсы:
+   1) Куча всего уже сделана за вас и довольно качественно
+   2) Каждый релиз riak привносит новый функционал, старый ломают крайне редко. Даже приватный API почти не ломают.
+   3) Разработчики нормально общаются в твиторе и на GH (фиксят к сожалению не всегда оперативно)
+   Минусы:
+   1) Башо тестируют каждый релиз riak на определённых версиях OTP. Использовать другие версии будет затруднительно потому что их часто прибивают гвоздями в rebar.config.
+   2) Многие депенды прибиты гвоздями к форкам basho, которые как правило отстают от апстрима. Но они постепенно отрезают такие депенды.
+   Рекомендации
+   1) Строго рекомендуется понимать что вы делаете и как это себя на самом деле ведёт (ownership и hinted handoff, forwarding во всех его ипостасях, разделения сети, ...)
+   2) riak_core это AP система, хорошо подумайте подходит ли вам это. Если вам всё таки требуется CP — нужно кроме riak_core взять ещё и riak_ensemble.
+   3) Пишите quickcheck/proper модели — это практически единственный способ что-то достоверно протестировать.
+   4) Подпишитесь на репозитории basho на GH.
+   5) Нормальный map-reduce называется riak_pipe.
