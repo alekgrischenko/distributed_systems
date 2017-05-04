@@ -461,10 +461,9 @@ looking for alternative nodes and ensuring that requests are fulfilled,
 or just returning errors back to the callers.
 
 There is no practical difference between a slow node and a dead node.
-Я не согласен, разница есть.
-slow node таки выполнит запрос и внесет изменения в состояние (в БД), хотя клиент ответа не получит.
+(slow node таки выполнит запрос и внесет изменения в состояние (в БД), хотя клиент ответа не получит.
 deal node не изменит состояние.
-Это со стороны клиента нет разницы, клиент получит error (timeout) в обоих случаях.
+Это со стороны клиента нет разницы, клиент получит error (timeout) в обоих случаях.)
 
 Your front-end nodes need to be aware of all these conditions and handle the resulting uncertainty.
 This is done through unique identifiers, idempotence, and retry attempts.
@@ -496,7 +495,7 @@ make sure it uses a *back-off algorithm* to regulate the frequency of its retrie
 Picture your system with a few million connected devices
 handling a couple hundred thousand requests per second experiencing a 1-minute outage.
 The outage will result in all the devices trying to reconnect and send requests,
-creating a surge in traffic.
+creating a surge (волна) in traffic.
 This surge increases for every second of downtime,
 hitting the system with force as soon as it becomes operational again.
 If not handled properly, this will cause more front-end nodes to terminate,
@@ -563,10 +562,11 @@ We prefer hashing algorithms, as they are fast and give you predictability and c
 When troubleshooting a request, having a deterministic route across nodes
 makes debugging much easier.
 
-В чем разница между Fault tolerance и Reliability?
-"or just returning errors back to the callers" -- видимо в этом.
-Fault tolerance может вернуть ошибку, просто это будет не 500 ошибка, а 4хх.
-а Reliability всегда выполняет запрос.
+
+Итак:
+Fault Tolerance -- это корректное поведение при возникновении ошибки (в т.ч. вернуть клиенту сообщение об ошибке).
+Resilience -- это восстановление после ошибки.
+Reliability -- клиент не получает ошибок, его запрос всегда выполняется.
 
 
 *** At most once, exactly once, and at least once
@@ -670,7 +670,7 @@ but need to retain state for more expensive operations.
 Think of an instant messaging server.
 The most expensive operation, and biggest bottleneck, is users logging in and starting a session.
 The session needs to access an authentication server,
-retrieve the userэs contact list,
+retrieve the users contact list,
 and send everyone a status update.
 
 Imagine a server handling a million users.
@@ -762,7 +762,7 @@ All your data is shared across all of the nodes, any of which might take over th
 
 If there is any uncertainty over the outcome of a request, an error is returned to the user.
 
-*When things go wrong, they have to be reconciled after the fact*.
+*When things go wrong, they have to be reconciled (примирять) after the fact*.
 For example, if you try to withdraw from multiple ATMs more funds than you have in your account,
 you get the money, but then later the bank penalizes you for overdrawing your account.
 
@@ -778,7 +778,7 @@ We call this *primary-primary replication*.
 This contrasts with *primary-secondary replication*,
 where a single primary node is responsible for the data.
 
- The secondary nodes can access the data,
+The secondary nodes can access the data,
 but must coordinate any destructive operations
 such as inserts or deletes
 with the primary if they wish to modify the data.
@@ -1600,3 +1600,13 @@ or the thresholds of certain metrics are met,
 you should automate actions.
 
 Operations and maintenance applications: os_mon, otp_mibs, and snmp.
+
+http://erlang.org/doc/man/os_mon_app.html
+The operating system monitor, OS_Mon, provides the following services:
+- cpu_sup CPU load and utilization supervision (Unix)
+- disksup Disk supervision(Unix, Windows)
+- memsup Memory supervision (Unix, Windows, VxWorks)
+- os_sup Interface to OS system messages (Solaris, Windows)
+
+Simple Network Management Protocol — простой протокол сетевого управления
+стандартный интернет-протокол для управления устройствами в IP-сетях на основе архитектур TCP/UDP.
