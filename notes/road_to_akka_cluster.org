@@ -1,0 +1,373 @@
+* The ROAD to AKKA CLUSTER and BEYOND
+
+Jonas Boner
+CTO Typesafe
+
+** Intro
+
+What is a distributed system? And why whould you need one?
+
+Distributed computing is new normal.
+You already have a distributed system whether you want it or not:
+Mobile, NOSQL databases, SQL replication, Cloud & REST Services.
+
+What is the essense of distributed computing?
+It's try to overcome:
+- information travels at the speed of light
+- independent things fail independently
+
+Why do we need it?
+*Elasticity* When you outgrow the resources of a single node.
+*Availability* Providing resilience if one node fails.
+
+It is still very hard.
+The network is inherently unreliable.
+You can't tell the diference between a slow node and a dead node.
+
+Peter Deutsch. 8 fallacies of distributed computing.
+1. The network is reliable
+2. Latency is zero
+3. Bandwidth is infinite
+4. The network is secure
+5. Topoligy doesn't change
+6. There is one administrator
+7. Transport cost is zero
+8. The network is homogeneous
+
+Graveyard of distributed systems
+1. Guaranteed Delivery
+2. Synchronous RPC
+3. Distributed Objects
+4. Distributed Shared Mutable State
+5. Serializable Distributed Transactions
+
+General Strategies: Divide and Conquer.
+Partition for scale
+Replication for resilience
+
+Share Nothing designs
+Asynchronous Message Passing
+Isolation & Containment (сдерживание)
+Location Transparency
+
+** Models for distributed computations
+
+A model should allow explicit reasoning about:
+1. Concurrency
+2. Distribution
+3. Mobility (изменчивость)
+
+
+*** Lambda Calculus.
+Alonzo Church. 1930.
+
+Immutable state managed through functional application.
+Referential transparent.
+
+B-reduction can be performed in any order (Even in parallel).
+(normal order, applicative order, call-by-name order, call-by-value order, call-by-need order)
+
+Supports concurrency.
+No model for distribution.
+No model for mobility.
+
+
+*** Von Neumann Machine
+John Von Neumann. 1945.
+
+Mutable state. In-place updates.
+Total order. List of instructions. Array of memory.
+
+No model for concurrency.
+No model for distribution.
+No model for mobility.
+
+
+*** Transactions
+Jim Gray. 1981.
+
+State: Isolation of updates. Atomicity.
+Order: Serializability. Disorder across transacions. Illusion of order within transactions.
+
+Concurrency works well
+Distribution does not work well
+
+
+*** Actors
+Carl Hewitt. 1973.
+
+State: Share nothing. Atomicity within the actor.
+Order: Async message passing. Non-determinism in message delivery.
+
+Great model for concurrency.
+Great model for distribution.
+Great model for mobility.
+
+
+*** Other interesting models
+suitable for distributed systems
+
+Pi Calculus
+Ambient Calculus
+Join Calculus
+
+
+** Impossibility Theorems
+
+*** Impossibility of distributed consensus with one faulty process.
+FLP.
+Fischer Lynch Paterson. 1985.
+Consensus in impossible.
+
+The FLP results shows that in an asynchronous settings, where only one
+processor might crash, there is no distributed algorithm that solves the
+consensus problem.
+
+These results do not show that such problem cannot be "solved" in practice;
+rather, they point up the need for more refined models
+of distributed computing.
+
+
+*** CAP theorem
+The Feasibility of Consistent, Available, Partition-Tolerant Web Services.
+
+Conjecture (предположение) by Eric Brewer 2000
+Proof by Lynch & Gilbert 2002
+
+Linearizability is impossible.
+
+Under linearizable consistency, all operations appear to have executed atomically
+in an order that is consistent with the global real-time ordering of operations.
+Herlihy & Wing 1991.
+
+Less formally: A read will return the last completed write (made on any replica).
+
+Dissecting (анализ) CAP
+1. Very influential—but very NARROW scope
+2. “[CAP] has lead to confusion and misunderstandings
+   regarding replica consistency, transactional isolation and
+   high availability” - Bailis et.al in HAT paper
+3. Linearizability is very often NOT required.
+4. Ignores LATENCY—but in practice latency & partitions are deeply related.
+5. Partitions are RARE—so why sacrifice C or A ALL the time?
+6. NOT black and white—can be fine-grained and dynamic
+7. Read ‘CAP Twelve Years Later’ - Eric Brewer
+
+
+** Consensus
+
+“The problem of reaching agreement among remote processes
+is one of the most fundamental problems in distributed computing
+and is at the core of many algorithms for distributed data processing,
+distributed file management, and fault-tolerant distributed applications.”
+Fischer, Lynch & Paterson 1985
+
+
+*** Consistency Models
+Strong, Weak, Eventual
+
+
+*** Time & Order
+Last write wins
+Global lock
+Timestamp
+
+Lamport Clocks
+Logical Clock. Causal Consistency.
+Leslie Lamport. 1978.
+1. When a process does work, increment the counter.
+2. When a process sends a message, include the counter.
+3. When a message is received, merge the counter
+   (set the counter to max(local, received) + 1)
+
+Vector Clocks
+Extends lamport clocks
+Colin Fidge. 1988.
+1. Each node owns and increments its own Lamport Clock
+2. Alway keep the full history of all increments
+3. Merges by calculating the max—monotonic merge
+
+
+*** Quorum
+
+Strict: Majority vote.
+Sloppy (небрежный): Partial vote.
+
+
+** Failure Detection
+
+Strong completeness
+Every crashed process is eventually suspected by every correct process
+(Everyone knows)
+
+Weak completeness
+Every crashed process is eventually suspected by some correct process
+(Someone knows)
+
+Strong accuracy
+No correct process is suspected ever
+(No false positives)
+
+Weak accuracy
+Some correct process is never suspected
+(Some false positives)
+
+Accrual Failure Detector. Hayashibara Et. Al. 2004
+SWIM Failure Detector. Das Et. Al. 2002
+Byzantine Failure Detector Liskov Et. Al. 1999
+
+
+** Replication
+
+Active (push) vs Passive (pull)
+Asynchronous vs Synchronous
+
+Master/Slave
+Tree
+Master/Master
+Buddy
+
+Analysis of replication consensus strategies
+../img/ds_props.png
+
+
+** Strong Consistency
+
+Distributed transactions
+
+Highly Available Transactions. Peter Bailis et. al. 2013
+
+Most SQL DBs do not provide Serializability, but weaker guarantees — for performance reasons
+Some weaker transaction guarantees are possible to implement in a HA manner
+
+UnAvailable:
+- Serializable
+- Snapshot Isolation
+- Repeatable Read
+- Cursor Stability
+
+Highly Available:
+- Read Committed
+- Read Uncommited
+- Read Your Writes
+- Monotonic Atomic View
+- Monotonic Read/Write
+
+
+*** Consensus Protocols
+
+Properties:
+- Termination: every process eventually decides on a value v
+- Validity: if a process decides v, then v was proposed by some process
+- Integrity: no process decides twice
+- Agreement: no two correct processes decide differently
+
+VR
+Paxos
+ZAB
+Raft
+
+
+*** Immutability
+
+Immutable Data
+Share Nothing Architecture
+
+Is the path towards TRUE Scalability
+
+
+*** Aggregate Roots
+
+Can wrap multiple Entities
+Aggregate Root is the Transactional Boundary
+
+Strong Consistency Within Aggregate
+Eventual Consistency Between Aggregates
+
+
+** Eventual Consistency
+
+Dynamo. Vogels et. al. 2007
+
+Very influential CAP.
+
+Popularized:
+- Eventual consistency
+- Epidemic gossip
+- Consistent hashing
+- Hinted handoff
+- Read repair
+- Anti-Entropy W/ Merkle trees
+
+
+How eventual is EC?
+How consistent is EC?
+
+
+*** Benefits of Epidemic Gossip
+- Decentralized P2P
+- No SPOF or SPOB
+- Very Scalable
+- Fully Elastic
+- Requires minimal administration
+
+
+** ACID 2.0
+
+Associative  a + (b + c) = (a + b) + c
+Commutative  a + b = b + a
+Idempotent   a + a = a
+
+*** Convergent & Commutative Replicated Data Types. Shapiro et. al. 2011
+CRDT:
+- Counters
+- Registers
+- Sets
+- Maps
+- Graphs
+
+2 TYPES of CRDTs
+
+CvRDT
+Convergent, State-based
+Self contained, holds all history
+
+CmRDT
+Commutative, Ops-based
+Needs a reliable broadcast channel
+
+
+*** CALM theorem
+Consistency As Logical Monotonicity
+
+Distributed Logic. Datalog/Dedalus.
+Monotonic functions. Just add facts to the system.
+Model state as Lattices (решетка). Similar to CRDTs (without the scope problem)
+
+Bloom Language
+Compiler help to detect & encapsulate non-monotonicity
+
+
+** The Akka Way
+
+Akka Actors
+Akka IO
+Akka Remote
+Akka Cluster
+Akka Cluster Extentions
+
+What is Akka CLUSTER all about?
+• Cluster Membership
+• Leader & Singleton
+• Cluster Sharding
+• Clustered Routers (adaptive, consistent hashing, ...)
+• Clustered Supervision and Deathwatch
+• Clustered Pub/Sub
+• and more
+
+Dynamo-style master-less decentralized P2P
+Epidemic Gossip—Node Ring
+Vector Clocks for causal consistency
+Fully elastic with no SPOF or SPOB
+Very scalable—2400 nodes (on GCE)
+High throughput—1000 nodes in 4 min (on GCE)

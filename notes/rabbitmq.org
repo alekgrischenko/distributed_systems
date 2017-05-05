@@ -78,9 +78,80 @@ Stateful filters, сумматоры, разного рода агрегатор
 позволяет динамически менять количество очередей
 старается делать так, чтобы решардинг прошел как можно более мягко.
 
-* Alvaro Videla - Building a Distributed Data Ingestion System with RabbitMQ
+
+* Building a Distributed Data Ingestion System with RabbitMQ
 https://www.youtube.com/watch?v=EUfSgYU_SFk
 https://www.slideshare.net/HDConf/alvaro-videla-building-a-distributed-data-ingestion-system-with-rabbitmq
 
+A`lvaro Videla
+co-author "RabbitMQ in Action"
+http://alvaro-videla.com/
 
-===
+
+** Intro to RabbitMQ
+
+Multi Protocol Messaging Server
+Open Source (MPL)
+Polyglot
+Written in Erlang/OTP
+Community Plugins
+
+Multi Protocol: AMQP, MQTT, STOMP.
+https://blogs.vmware.com/vfabric/2013/02/choosing-your-messaging-protocol-amqp-mqtt-or-stomp.html
+
+Rebar is history, rabbitmq is pre-history. Not so easy to develop plugins.
+
+Polyglot. Use can use it from: Java, node.js, Erlang, PHP, Ruby, .NET, Haskell, Python and many others.
+
+RabbitMQ Simulator Demo
+http://tryrabbitmq.com/
+https://github.com/RabbitMQSimulator/RabbitMQSimulator
+
+Есть много видов exchange, реализованых плагинами.
+В том числе module hash exchange и consistent hash exchange.
+
+
+** The Problem
+
+Erlang code samples for producer and consumer.
+
+Possible issues if not use rabbitmq but implement message queue. List of 6 points.
+
+RabbitMQ Federation
+
+можно построить разную топологию (дерево, кольцо и т.д.)
+
+- support replication across different administrative domains
+- support mix of erlang and rabbitmq versions
+- support network partitions
+- specificity - not everything has to be federated
+
+Sample how to enable and configure.
+
+expires, message-ttl, max-hops
+
+Speed vs No Message Loss: ack-mode (on-confirm/on-publish/no-ack)
+
+Recomended Reading:
+Performance Modeling and Design of Computer Systems: Queueing Theory in Action
+https://www.amazon.com/Performance-Modeling-Design-Computer-Systems/dp/1107027500
+
+
+The Problem:
+- Queues contents live in the node where the Queue was declared
+- A cluster can access the queue from every connected node
+- Queues are an Erlang processes
+- Adding more nodes doesn't really help
+(только я не понял, почему все перечисленое является проблемой)
+
+
+** Solution
+
+Sharded Queues
+- declare queue with name nodename.queuename.index
+- bind the queues to a partitioner exchange
+- transparent to consumer (virtual queue name)
+
+Federated Queues
+- load-balance messages across federated queues
+- only move messages when needed
