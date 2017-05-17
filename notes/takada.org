@@ -264,3 +264,1076 @@ having specified one, we can then take a look at some impossibility results and 
 
 
 *** System Model
+
+Programs in a distributed system:
+- run concurrently on independent nodes
+- are connected by a network that may introduce nondeterminism and message loss
+- and have no shared memory or shared clock
+
+There are many implications:
+- each node executes a program concurrently
+- knowledge is local: nodes have fast access only to their local state,
+  and any information about global state is potentially out of date
+- nodes can fail and recover from failure independently
+- messages can be delayed or lost
+  (independent of node failure; it is not easy to distinguish network failure and node failure)
+- and clocks are not synchronized across nodes
+  (local timestamps do not correspond to the global real time order, which cannot be easily observed)
+
+*System Model* is a set of assumptions about the environment and facilities
+on which a distributed system is implemented.
+
+These assumptions include:
+- what capabilities the nodes have and how they may fail
+- how communication links operate and how they may fail
+- properties of the overall system, such as assumptions about time and order
+
+A robust system model is one that makes the weakest assumptions:
+any algorithm written for such a system is very tolerant of different environments,
+since it makes very few and very weak assumptions.
+
+On the other hand, we can create a system model that is easy to reason about by making strong assumptions.
+For example, assuming that nodes do not fail
+means that our algorithm does not need to handle node failures.
+However, such a system model is unrealistic and hence hard to apply into practice.
+
+
+**** Nodes in our system model
+
+Nodes serve as hosts for computation and storage.
+
+They have:
+- the ability to execute a program
+- the ability to store data into volatile memory (which can be lost upon failure)
+  and into stable state (which can be read after a failure)
+- a clock (which may or may not be assumed to be accurate)
+
+
+**** Communication links in our system model
+
+Communication links connect individual nodes to each other, and allow messages to be sent in either direction.
+
+Many books that discuss distributed algorithms assume that:
+- there are individual links between each pair of nodes,
+- that the links provide FIFO (first in, first out) order for messages,
+- that they can only deliver messages that were sent,
+- and that sent messages can be lost.
+
+It is rare to make further assumptions about communication links:
+- We could assume that links only work in one direction,
+- or we could introduce different communication costs
+  (e.g. latency due to physical distance) for different links.
+
+A network partition occurs when the network fails
+while the nodes themselves remain operational.
+When this occurs, messages may be lost or delayed until the network partition is repaired.
+Partitioned nodes may be accessible by some clients, and so must be treated differently from crashed nodes.
+
+
+**** Timing / ordering assumptions
+
+If nodes are at different distances from each other,
+then any messages sent from one node to the others
+will arrive at a different time
+and potentially in a different order at the other nodes.
+
+Synchronous system model
+- Processes execute in lock-step;
+- there is a known upper bound on message transmission delay;
+- each process has an accurate clock.
+
+Asynchronous system model
+- No timing assumptions - e.g. processes execute at independent rates;
+- there is no bound on message transmission delay;
+- useful clocks do not exist.
+
+It is easier to solve problems in the synchronous system model,
+because assumptions about execution speeds, maximum message transmission delays and clock accuracy
+all help in solving problems.
+But synchronous system model is not particularly realistic.
+
+
+**** The consensus problem
+http://en.wikipedia.org/wiki/Consensus_%28computer_science%29
+
+We'll look at how varying two system properties:
+- whether or not network partitions are included in the failure model,
+- and synchronous vs. asynchronous timing assumptions
+influence the system design choices by discussing two impossibility results (FLP and CAP).
+
+Several computers (or nodes) achieve consensus if they all agree on some value.
+
+More formally:
+- Agreement: Every correct process must agree on the same value.
+- Integrity: Every correct process decides at most one value,
+  and if it decides some value, then it must have been proposed by some process.
+- Termination: All processes eventually reach a decision.
+- Validity: If all correct processes propose the same value V, then all correct processes decide V.
+(не понятно)
+
+The consensus problem is at the core of many commercial distributed systems.
+
+Solving the consensus problem makes it possible to solve several related, more advanced problems
+such as atomic broadcast and atomic commit.
+
+
+**** Two impossibility results
+
+FLP is an impossibility result that is particularly relevant to people who design distributed algorithms.
+
+CAP theorem - is a related result that is more relevant to practitioners;
+people who need to choose between different system designs
+but who are not directly concerned with the design of algorithms.
+
+
+*** The FLP impossibility result
+
+named after the authors, Fischer, Lynch and Patterson
+considered to be more important in academic circles.
+
+examines the consensus problem under the asynchronous system model
+(technically, the agreement problem, which is a very weak form of the consensus problem).
+
+It is assumed that:
+- nodes can only fail by crashing;
+- that the network is reliable,
+- and that the typical timing assumptions of the asynchronous system model hold:
+  e.g. there are no bounds on message delay.
+
+The FLP result states that
+"there does not exist a (deterministic) algorithm for the consensus problem
+in an asynchronous system subject to failures,
+even if messages can never be lost,
+at most one process may fail,
+and it can only fail by crashing (stopping executing)".
+
+This result means that there is no way to solve the consensus problem
+under a very minimal system model
+in a way that cannot be delayed forever.
+
+It highlights that assuming the asynchronous system model leads to a tradeoff:
+algorithms that solve the consensus problem
+must either give up safety or liveness
+when the guarantees regarding bounds on message delivery do not hold.
+
+CAP theorem makes slightly different assumptions
+(network failures rather than node failures),
+and has more clear implications for practitioners choosing between system designs.
+
+
+*** The CAP theorem
+
+The CAP theorem was initially a conjecture (гипотеза) made by computer scientist Eric Brewer.
+
+It's a popular and fairly useful way
+to think about tradeoffs in the guarantees
+that a system design makes.
+
+The theorem states that of these three properties:
+- Consistency: all nodes see the same data at the same time.
+- Availability: node failures do not prevent survivors from continuing to operate.
+- Partition tolerance: the system continues to operate despite message loss due to network and/or node failure
+
+Only two can be satisfied simultaneously.
+
+We get three different system types:
+- CA (consistency + availability).
+  Examples include full strict quorum protocols, such as two-phase commit.
+- CP (consistency + partition tolerance).
+  Examples include majority quorum protocols in which minority partitions are unavailable such as Paxos.
+- AP (availability + partition tolerance).
+  Examples include protocols using conflict resolution, such as Dynamo.
+
+The CA and CP system designs both offer the same consistency model: strong consistency.
+The only difference is that a CA system cannot tolerate any node failures;
+a CP system can tolerate up to f faults given 2f+1 nodes
+
+A CA system does not distinguish between node failures and network failures,
+and hence must stop accepting writes everywhere to avoid introducing divergence (multiple copies).
+
+A CP system prevents divergence (e.g. maintains single-copy consistency)
+by forcing asymmetric behavior on the two sides of the partition.
+It only keeps the majority partition around,
+and requires the minority partition to become unavailable (e.g. stop accepting writes).
+
+CP systems incorporate network partitions into their failure model
+and distinguish between a majority partition and a minority partition
+using an algorithm like Paxos, Raft or viewstamped replication.
+
+CA systems are not partition-aware, and are historically more common:
+they often use the two-phase commit algorithm
+and are common in traditional distributed relational databases.
+
+Assuming that a partition occurs, the theorem reduces to a binary choice between availability and consistency.
+
+Strong consistency / single-copy consistency requires
+that nodes communicate and agree on every operation.
+This results in high latency during normal operation.
+
+If we do not want to give up availability during a network partition,
+then we need to explore whether consistency models other than strong consistency
+are workable for our purposes.
+
+If "consistency" is defined as something less than
+"all nodes see the same data at the same time"
+then we can have both availability and some (weaker) consistency guarantee.
+
+"consistency" is not a singular, unambiguous property.
+ACID consistency != CAP consistency != Oatmeal consistency
+
+The "C" in CAP is "strong consistency", but "consistency" is not a synonym for "strong consistency".
+
+
+*** Strong consistency vs. other consistency models
+
+- Strong consistency models (capable of maintaining a single copy)
+  - Linearizable consistency
+  - Sequential consistency
+- Weak consistency models (not strong)
+  - Client-centric consistency models
+  - Causal consistency: strongest model available
+  - Eventual consistency models
+
+Strong consistency models guarantee
+that the apparent (очевидный) order and visibility of updates is equivalent to a non-replicated system.
+Weak consistency models, on the other hand, do not make such guarantees.
+
+Note that this is by no means an exhaustive list.
+
+Again, consistency models are just arbitrary contracts between the programmer and system, so they can be almost anything.
+
+Weak consistency models have anomalies,
+because they behave in a way that is distinguishable from a non-replicated system.
+But often these anomalies are acceptable,
+either because we don't care about occasional issues
+or because we've written code that deals with inconsistencies in some way.
+
+
+**** Strong consistency models
+
+Linearizable consistency:
+all operations appear to have executed atomically
+in an order that is consistent
+with the global real-time ordering of operations.
+
+Sequential consistency:
+all operations appear to have executed atomically
+in some order that is consistent
+with the order seen at individual nodes
+and that is equal at all nodes.
+
+The key difference is that
+linearizable consistency requires that the order in which operations take effect
+is equal to the actual real-time ordering of operations.
+Sequential consistency allows for operations to be reordered
+as long as the order observed on each node remains consistent.
+
+The only way someone can distinguish between the two
+is if they can observe all the inputs and timings going into the system;
+from the perspective of a client interacting with a node, the two are equivalent.
+
+
+**** Client-centric consistency models
+
+Client-centric consistency models are consistency models that involve the notion of a client or session in some way.
+
+For example, a client-centric consistency model might guarantee
+that a client will never see older versions of a data item.
+This is often implemented by building additional caching into the client library,
+so that if a client moves to a replica node that contains old data,
+then the client library returns its cached value rather than the old value from the replica.
+
+
+**** Eventual consistency
+
+The eventual consistency model says that if you stop changing values,
+then after some undefined amount of time all replicas will agree on the same value.
+
+It is implied that before that time results between replicas are inconsistent in some undefined manner.
+
+It is useless without supplemental information.
+Saying something is merely eventually consistent is like saying "people are eventually dead".
+
+We'd want to have at least some more specific characterization of two things:
+
+How long is "eventually"?
+It would be useful to have a strict lower bound,
+or at least some idea of how long it typically takes for the system to converge to the same value.
+
+How do the replicas agree on a value?
+A system that always returns "42" is eventually consistent: all replicas agree on the same value.
+For example, one way to decide is to have the value with the largest timestamp always win.
+
+
+** Time and order
+
+Any system that can only do one thing at a time will create a total order of operations.
+Like people passing through a single door,
+every operation will have a well-defined predecessor and successor.
+That's basically the programming model that we've worked very hard to preserve.
+
+Order as a property has received so much attention
+because the easiest way to define "correctness"
+is to say "it works like it would on a single machine".
+And that usually means that
+a) we run the same operations and
+b) that we run them in the same order
+- even if there are multiple machines.
+
+You can still assign a total order,
+but it requires either accurate clocks or some form of communication.
+
+You could timestamp each operation using a completely accurate clock
+then use that to figure out the total order.
+Or you might have some kind of communication system
+that makes it possible to assign sequential numbers as in a total order.
+
+Communication is expensive, and time synchronization is difficult and fragile.
+
+
+*** Total and partial order
+
+The natural state in a distributed system is partial order.
+Neither the network nor independent nodes make any guarantees about relative order;
+but at each node, you can observe a local order.
+
+https://en.wikipedia.org/wiki/Total_order
+https://en.wikipedia.org/wiki/Partially_ordered_set
+
+A total order is a binary relation that defines an order for every element in some set.
+Two distinct elements are comparable when one of them is greater than the other.
+
+In a partially ordered set, some pairs of elements are not comparable
+and hence a partial order doesn't specify the exact order of every item.
+
+Both total order and partial order are transitive and antisymmetric.
+If a ≤ b and b ≤ a then a = b (antisymmetry);
+If a ≤ b and b ≤ c then a ≤ c (transitivity);
+
+
+*** What is time?
+
+Time is a source of order.
+
+In some sense, time is just like any other integer counter.
+It just happens to be important enough
+that most computers have a dedicated time sensor, also known as a clock.
+
+It's so important that we've figured out
+how to synthesize an approximation of the same counter
+using some imperfect physical system (from wax candles to cesium atoms).
+
+Timestamps really are a shorthand value for representing the state of the world
+from the start of the universe to the current moment.
+If something occurred at a particular timestamp,
+then it was potentially influenced by everything that happened before it.
+
+Assuming that time progresses at the same rate everywhere,
+time and timestamps have several useful interpretations when used in a program:
+- Order
+- Interpretation
+- Duration
+
+Order:
+- we can attach timestamps to unordered events to order them
+- we can use timestamps to enforce a specific ordering of operations or the delivery of messages
+  (for example, by delaying an operation if it arrives out of order)
+- we can use the value of a timestamp to determine
+  whether something happened chronologically before something else
+
+Interpretation - time as a universally comparable value.
+The absolute value of a timestamp can be interpreted as a date, which is useful for people.
+Given a timestamp of when a downtime started from a log file,
+you can tell that it was last Saturday, when there was a thunderstorm.
+
+Duration - durations measured in time have some relation to the real world.
+Algorithms generally don't care about the absolute value,
+but they might use durations to make some judgment calls.
+In particular, the amount of time spent waiting
+can provide clues about whether a system is partitioned or merely experiencing high latency.
+
+By their nature, the components of distributed systems do not behave in a predictable manner.
+They do not guarantee any specific order, rate of advance, or lack of delay.
+Each node does have some local order - as execution is (roughly) sequential -
+but these local orders are independent of each other.
+
+Imposing (or assuming) order is one way to reduce
+the space of possible executions and possible occurrences.
+Humans have a hard time reasoning about things
+when things can happen in any order -
+there just are too many permutations to consider.
+
+
+*** Does time progress at the same rate everywhere?
+
+We all have an intuitive concept of time based on our own experience as individuals.
+Unfortunately, that intuitive notion of time makes it easier to picture total order rather than partial order.
+
+There are three common answers:
+- "Global clock": yes
+- "Local clock": no, but
+- "No clock": no!
+
+These correspond roughly to the three timing assumptions:
+- the synchronous system model has a global clock,
+- the partially synchronous model has a local clock,
+- and in the asynchronous system model one cannot use clocks at all.
+
+
+*** Time with a "global-clock" assumption
+
+There is a global clock of perfect accuracy,
+and that everyone has access to that clock.
+
+This is the way we tend to think about time,
+because in human interactions small differences in time don't really matter.
+
+The global clock is basically a source of total order
+(exact order of every operation on all nodes even if those nodes have never communicated).
+
+However, this is an idealized view of the world:
+in reality, clock synchronization is only possible to a limited degree of accuracy.
+
+There are many different scenarios where a simple failure -
+such as a user accidentally changing the local time on a machine,
+or an out-of-date machine joining a cluster,
+or synchronized clocks drifting at slightly different rates and so on
+that can cause hard-to-trace anomalies.
+
+Nevertheless, there are some real-world systems that make this assumption:
+Cassandra https://en.wikipedia.org/wiki/Apache_Cassandra
+It uses timestamps to resolve conflicts between writes - the write with the newer timestamp wins.
+This means that if clocks drift, new data may be ignored or overwritten by old data.
+
+
+*** Time with a "Local-clock" assumption
+
+The second, and perhaps more plausible (правдоподобное) assumption
+is that each machine has its own clock, but there is no global clock.
+
+You cannot use the local clock in order to determine
+whether a remote timestamp occurred before or after a local timestamp.
+
+Events on each system are ordered
+but events cannot be ordered across systems by only using a clock.
+
+
+*** Time with a "No-clock" assumption
+
+There is the notion of logical time.
+Here, we don't use clocks at all and instead track causality in some other way.
+
+We can use counters and communication to determine
+whether something happened before, after or concurrently with something else.
+
+This way, we can determine the order of events between different machines,
+but cannot say anything about intervals and cannot use timeouts.
+
+This is a partial order: events can be ordered on a single system using a counter and no communication,
+but ordering events across systems requires a message exchange.
+
+One of the most cited papers in distributed systems
+is Lamport's paper "on time, clocks and the ordering of events".
+http://research.microsoft.com/users/lamport/pubs/time-clocks.pdf
+
+Vector clocks, a generalization of that concept, are a way to track causality without using clocks.
+Riak (Basho) and Voldemort (Linkedin) use vector clocks.
+
+The maximum precision at which events can be ordered
+across distant machines is bound by communication latency.
+
+
+*** How is time used in a distributed system?
+
+Time can define order across a system (without communication).
+Time can define boundary conditions for algorithms.
+
+Specifically, to distinguish between "high latency" and "server or network link is down".
+In most real-world systems timeouts are used to determine
+whether a remote machine has failed, or whether it is simply experiencing high network latency.
+Algorithms that make this determination are called *failure detectors*.
+
+
+*** Vector clocks
+
+Lamport clocks and vector clocks are replacements for physical clocks
+which rely on counters and communication
+to determine the order of events across a distributed system.
+These clocks provide a counter that is comparable across different nodes.
+
+A Lamport clock is simple.
+Each process maintains a counter using the following rules:
+- Whenever a process does work, increment the counter
+- Whenever a process sends a message, include the counter
+- When a message is received, set the counter to max(local_counter, received_counter) + 1
+
+Lamport clocks define a partial order.
+
+If timestamp(a) < timestamp(b):
+A may have happened before B or
+A may be incomparable with B
+
+Clock consistency condition:
+if one event comes before another, then that event's logical clock comes before the others.
+
+Lamport clock can only carry information about one timeline / history;
+hence, comparing Lamport timestamps from systems
+that never communicate with each other
+may cause concurrent events to appear to be ordered
+when they are not.
+
+However - and this is still a useful property -
+from the perspective of a single machine,
+any message sent with ts(a)
+will receive a response with ts(b) which is > ts(a).
+
+A vector clock is an extension of Lamport clock,
+which maintains an array [ t1, t2, ... ] of N logical clocks - one per each node.
+Rather than incrementing a common counter,
+each node increments its own logical clock in the vector
+by one on each internal event.
+
+Hence the update rules are:
+- Whenever a process does work, increment the logical clock value of the node in the vector
+- Whenever a process sends a message, include the full vector of logical clocks
+- When a message is received:
+  - update each element in the vector to be max(local, received)
+  - increment the logical clock value representing the current node in the vector
+
+img/vector_clock.png
+
+The issue with vector clocks is mainly that
+they require one entry per node,
+which means that they can potentially become very large for large systems.
+
+A variety of techniques have been applied to reduce the size of vector clocks
+(either by performing periodic garbage collection,
+or by reducing accuracy by limiting the size).
+
+
+*** Failure detectors (time for cutoff)
+
+The amount of time spent waiting can provide clues about
+whether a system is partitioned or merely experiencing high latency.
+
+In this case, we don't need to assume a global clock of perfect accuracy -
+it is simply enough that there is a reliable-enough local clock.
+
+A failure detector is a way to abstract away the exact timing assumptions.
+Failure detectors are implemented using heartbeat messages and timers.
+Processes exchange heartbeat messages.
+If a message response is not received before the timeout occurs,
+then the process suspects the other process.
+
+A failure detector based on a timeout will carry the risk of being either
+overly aggressive (declaring a node to have failed)
+or being overly conservative (taking a long time to detect a crash).
+How accurate do failure detectors need to be for them to be usable?
+
+Two properties, completeness and accuracy:
+Strong completeness - Every crashed process is eventually suspected by every correct process.
+Weak completeness - Every crashed process is eventually suspected by some correct process.
+Strong accuracy - No correct process is suspected ever.
+Weak accuracy - Some correct process is never suspected.
+
+Avoiding incorrectly suspecting non-faulty processes is hard.
+
+Without a failure detector,
+it is not possible to tell whether a remote node has crashed,
+or is simply experiencing high latency.
+That distinction is important for any system that aims for single-copy consistency:
+failed nodes can be ignored because they cannot cause divergence,
+but partitioned nodes cannot be safely ignored.
+
+We'd prefer the failure detector to be able
+to adjust to changing network conditions
+and to avoid hardcoding timeout values into it.
+
+For example, Cassandra uses an *accrual failure detector*,
+which is a failure detector that outputs a suspicion level (a value between 0 and 1)
+rather than a binary "up" or "down" judgment.
+This allows the application using the failure detector to make its own decisions
+about the tradeoff between accurate detection and early detection.
+
+
+*** Time, order and performance
+
+You can transform a partial order into a total order,
+but this requires communication, waiting and imposes restrictions
+that limit how many computers can do work at any particular point in time.
+
+Algorithms don't really care about time as much as they care about more abstract properties:
+- the causal ordering of events
+- failure detection (e.g. approximations of upper bounds on message delivery)
+- consistent snapshots (e.g. the ability to examine the state of a system at some point in time)
+
+Imposing a total order is possible, but expensive.
+It requires you to proceed at the common (lowest) speed.
+
+Often the easiest way to ensure that events are delivered in some defined order
+is to nominate a single (bottleneck) node through which all operations are passed.
+
+Is time / order / synchronicity really necessary? It depends.
+In some use cases, we want each intermediate operation to move the system from one consistent state to another.
+But in other cases, we might not need that much time / order / synchronization.
+
+When is order needed to guarantee correctness?
+The CALM theorem - which I will discuss in the last chapter - provides one answer.
+
+In other cases, it is acceptable to give an answer
+that only represents the best known estimate -
+that is, is based on only a subset of the total information contained in the system.
+In particular, during a network partition one may need to answer queries
+with only a part of the system being accessible.
+
+In other use cases, the end user cannot really distinguish
+between a relatively recent answer that can be obtained cheaply
+and one that is guaranteed to be correct and is expensive to calculate.
+
+For example, is the Twitter follower count for some user X, or X+1?
+Or are movies A, B and C the absolutely best answers for some query?
+Doing a cheaper, mostly correct "best effort" can be acceptable.
+
+
+** Replication
+
+The replication problem is one of many problems in distributed systems.
+I've chosen to focus on it over other problems such as:
+- leader election,
+- failure detection,
+- mutual exclusion,
+- consensus
+- and global snapshots
+because it is often the part that people are most interested in.
+
+Replication provides a context for many subproblems,
+such as leader election, failure detection, consensus and atomic broadcast.
+
+The arrangement (договоренность) and communication pattern can then be divided into several stages:
+- (Request) The client sends a request to a server
+- (Sync) The synchronous portion of the replication takes place
+- (Response) A response is returned to the client
+- (Async) The asynchronous portion of the replication takes place
+
+This model is loosely based on this article:
+https://www.google.com/search?q=understanding+replication+in+databases+and+distributed+systems
+
+
+*** Synchronous replication
+
+Also known as active, or eager (нетерпеливый), or push, or pessimistic replication.
+
+The client sends the request.
+Next, what we called the synchronous portion of replication takes place.
+The term refers to the fact that the client is blocked - waiting for a reply from the system.
+
+During the synchronous phase,
+the first server contacts the two other servers
+and waits until it has received replies from all the other servers.
+
+Finally, it sends a response to the client informing it of the result (e.g. success or failure).
+
+Before a response is returned, it has to be seen and acknowledged by every server in the system.
+
+The system:
+- will be as fast as the slowest server in it
+- will also be very sensitive to changes in network latency
+- cannot tolerate the loss of any servers
+  It might be able to provide read-only access to the data,
+  but modifications are not allowed after a node has failed in this design.
+
+This arrangement can provide very strong durability guarantees.
+
+
+*** Asynchronous replication
+
+a.k.a. passive replication, or pull replication, or lazy replication.
+
+The master (/leader / coordinator) immediately sends back a response to the client.
+At some later stage, the asynchronous portion of the replication task takes place.
+Here, the master contacts the other servers using some communication pattern,
+and the other servers update their copies of the data.
+
+System is
+- fast: the client does not need to spend
+  any additional time waiting for the internals of the system to do their work.
+- tolerant of network latency
+
+This arrangement can only provide weak, or probabilistic durability guarantees.
+
+If nothing goes wrong, the data is eventually replicated to all N machines.
+However, if the only server containing the data is lost before this can take place, the data is permanently lost.
+
+Passive replication cannot ensure that all nodes in the system always contain the same state.
+If you accept writes at multiple locations,
+then you will run the risk of divergence:
+reads may return different results from different locations.
+
+
+*** An overview of major replication approaches
+
+There are many, many different ways to categorize replication techniques.
+
+The second distinction (after sync vs. async) I'd like to introduce is between:
+- Replication methods that prevent divergence (single copy systems) and
+- Replication methods that risk divergence (multi-master systems)
+
+The first group of methods:
+The system ensures that the replicas are always in agreement.
+This is known as the consensus problem.
+
+Several processes (or computers) achieve consensus if they all agree on some value.
+
+More formally:
+- Agreement: Every correct process must agree on the same value.
+- Integrity: Every correct process decides at most one value,
+  and if it decides some value, then it must have been proposed by some process.
+- Termination: All processes eventually reach a decision.
+- Validity: If all correct processes propose the same value V, then all correct processes decide V.
+
+Mutual exclusion, leader election, multicast and atomic broadcast
+are all instances of the more general problem of consensus.
+
+The replication algorithms that maintain single-copy consistency include:
+- 1n messages (asynchronous primary/backup)
+- 2n messages (synchronous primary/backup)
+- 4n messages (2-phase commit, Multi-Paxos)
+- 6n messages (3-phase commit, Paxos with repeated leader election)
+
+These algorithms vary in their fault tolerance (e.g. the types of faults they can tolerate).
+
+I've classified these simply by the number of messages exchanged
+during an execution of the algorithm,
+because I think it is interesting to try to find an answer to the question
+"what are we buying with the added message exchanges?"
+
+./img/replication_algorithms.png
+TODO: нет четких объяснений, что за системы по горизонтали, и что за свойства по вертикали.
+
+
+*** Primary/backup replication
+
+Primary/backup replication
+(also known as primary copy replication master-slave replication or log shipping)
+is perhaps the most commonly used replication method.
+
+All updated are performed on the primary,
+and a log of operations (or alternatively, changes)
+is shipped across the network to the backup replicas.
+
+There are two variants:
+- asynchronous
+- synchronous
+
+Provide weak durability guarantees.
+In MySQL replication this manifests as replication lag:
+the asynchronous backups are always at least one operation behind the primary.
+If the primary fails, then the updates that have not yet been sent to the backups are lost.
+
+The synchronous variant also an only offer weak guarantees.
+Consider scenario:
+- the primary receives a write and sends it to the backup
+- the backup persists and ACKs the write
+- and then primary fails before sending ACK to the client
+
+The client now assumes that the commit failed,
+but the backup committed it;
+if the backup is promoted to primary, it will be incorrect.
+Manual cleanup may be needed to reconcile the failed primary or divergent backups.
+
+P/B schemes are susceptible to split-brain,
+where the failover to a backup kicks in due to a temporary network issue
+and causes both the primary and backup to be active at the same time.
+
+
+*** Two phase commit (2PC)
+
+To prevent inopportune failures from causing consistency guarantees to be violated;
+we need to add another round of messaging, which gets us the two phase commit protocol (2PC).
+
+2PC is a protocol used in many classic relational databases.
+For example, MySQL Cluster.
+
+First phase (voting)
+The coordinator sends the update to all the participants.
+Each participant processes the update and votes whether to commit or abort.
+When voting to commit, the participants store the update onto a temporary area (the write-ahead log).
+Until the second phase completes, the update is considered temporary.
+
+Second phase (decision)
+The coordinator decides the outcome and informs every participant about it.
+If all participants voted to commit, then the update is taken from the temporary area and made permanent.
+
+Having a second phase allows the system to roll back an update when a node fails.
+In contrast, in primary/backup ("1PC"), there is no step for rolling back an operation
+that has failed on some nodes and succeeded on others,
+and hence the replicas could diverge.
+
+2PC is prone (склонный) to blocking,
+since a single node failure (participant or coordinator)
+blocks progress until the node has recovered.
+
+The details of the recovery procedures during node failures are quite complicated.
+
+Regarding CAP, 2PC is a CA - it is not partition tolerant.
+The failure model that 2PC addresses does not include network partitions.
+There is no safe way to promote a new coordinator if one fails; rather a manual intervention is required.
+
+2PC is also latency-sensitive.
+It cannot proceed until the slowest node acknowledges them.
+
+It has been popular in relational databases.
+However, newer systems often use a partition tolerant consensus algorithm.
+
+
+*** Partition tolerant consensus algorithms
+
+There is a class of fault tolerant algorithms
+that tolerate arbitrary (Byzantine) faults;
+these include nodes that fail by acting maliciously.
+Such algorithms are rarely used in commercial systems,
+because they are more expensive to run and more complicated to implement
+ - and hence I will leave them out.
+
+The most well-known algorithm is the Paxos algorithm.
+It is notoriously difficult to implement and explain.
+So I will focus on Raft, a recent (~early 2013) algorithm designed to be easier to teach and implement.
+
+
+**** What is a network partition?
+
+A network partition is the failure of a network link to one or several nodes.
+The nodes themselves continue to stay active,
+and they may even be able to receive requests from clients
+on their side of the network partition.
+
+Network partitions are tricky
+because during a network partition,
+it is not possible to distinguish between
+a failed remote node and the node being unreachable.
+
+If a network partition occurs but no nodes fail,
+then the system is divided into two partitions which are simultaneously active.
+
+A system that enforces single-copy consistency
+must have some method to break symmetry:
+otherwise, it will split into two separate systems,
+which can diverge from each other
+and can no longer maintain the illusion of a single copy.
+
+Network partition tolerance
+for systems that enforce single-copy consistency
+requires that during a network partition,
+only one partition of the system remains active.
+
+
+**** Majority decisions
+
+Partition tolerant consensus algorithms rely on a majority vote.
+
+Requiring a majority of nodes - rather than all of the nodes (as in 2PC) - to agree on updates
+allows a minority of the nodes to be down, or slow, or unreachable due to a network partition.
+As long as (N/2 + 1) nodes are up and accessible, the system can continue to operate.
+
+Partition tolerant consensus algorithms use an odd number of nodes (e.g. 3, 5 or 7).
+With just two nodes, it is not possible to have a clear majority after a failure.
+
+When a network partition occurs, the partitions behave asymmetrically.
+Minority partition will stop processing operations to prevent divergence,
+but the majority partition can remain active.
+
+Majorities are also useful because they can tolerate disagreement.
+A temporary disagreement can at most block the protocol from proceeding (giving up liveness)
+but it cannot violate the single-copy consistency criterion (safety property).
+
+
+**** Roles
+
+There are two ways one might structure a system:
+all nodes may have the same responsibilities,
+or nodes may have separate, distinct roles.
+
+Consensus algorithms for replication generally opt for having distinct roles for each node.
+Having a single fixed leader or master server is an optimization that makes the system more efficient.
+
+Both Paxos and Raft make use of distinct node roles.
+Raft: Leader/Follower
+Paxos: Proposer/Acceptors
+
+
+**** Epochs
+
+Each period of normal operation is called an epoch ("term" in Raft).
+During each epoch only one node is the designated leader.
+
+After a successful election, the same leader coordinates until the end of the epoch.
+Some elections may fail, causing the epoch to end immediately.
+
+Epochs act as a logical clock, allowing other nodes to identify
+when an outdated node starts communicating -
+nodes that were partitioned or out of operation
+will have a smaller epoch number than the current one,
+and their commands are ignored.
+
+
+**** Leader changes via duels
+
+During normal operation, a partition-tolerant consensus algorithm is rather simple.
+
+Most of the complexity really arises from
+ensuring that once a consensus decision has been made, it will not be lost
+and the protocol can handle leader changes as a result of a network or node failure.
+
+All nodes start as followers;
+one node is elected to be a leader at the start.
+During normal operation, the leader maintains a heartbeat
+which allows the followers to detect
+if the leader fails or becomes partitioned.
+
+When a node detects that a leader has become non-responsive
+(or, in the initial case, that no leader exists),
+it switches to an intermediate state (called "candidate" in Raft)
+where it increments the term/epoch value by one,
+initiates a leader election
+and competes to become the new leader.
+
+In order to be elected a leader, a node must receive a majority of the votes.
+One way to assign votes is to simply assign them on a first-come-first-served basis;
+this way, a leader will eventually be elected.
+
+Adding a random amount of waiting time between attempts at getting elected
+will reduce the number of nodes that are simultaneously attempting to get elected.
+
+
+**** Numbered proposals within an epoch
+
+During each epoch, the leader proposes one value at a time to be voted upon.
+Within each epoch, each proposal is numbered with a unique strictly increasing number.
+The followers (voters / acceptors) accept the first proposal they receive for a particular proposal number.
+
+
+**** Normal operation
+
+During normal operation, all proposals go through the leader node.
+
+When a client submits a proposal (e.g. an update operation),
+the leader contacts all nodes in the quorum.
+If no competing proposals exist (based on the responses from the followers),
+the leader proposes the value.
+If a majority of the followers accept the value, then the value is considered to be accepted.
+
+It is possible that another node is also attempting to act as a leader.
+
+Once a single proposal has been accepted, its value can never change.
+Otherwise a proposal might for example be reverted by a competing leader.
+
+Lamport states this as:
+P2: If a proposal with value v is chosen, then every higher-numbered proposal that is chosen has value v.
+
+In order to enforce this property,
+the proposers must first ask the followers for their (highest numbered) accepted proposal and value.
+If the proposer finds out that a proposal already exists,
+then it must simply complete this execution of the protocol, rather than making its own proposal.
+
+If multiple previous proposals exist, then the highest-numbered proposal value is proposed.
+Proposers may only attempt to impose their own value if there are no competing proposals at all.
+
+Reaching a decision using Paxos requires two rounds of communication:
+
+[ Proposer ] -> Prepare(n)                                [ Followers ]
+             <- Promise(n; previous proposal number
+                and previous value if accepted a
+                proposal in the past)
+
+[ Proposer ] -> AcceptRequest(n, own value or the value   [ Followers ]
+                associated with the highest proposal number
+                reported by the followers)
+                <- Accepted(n, value)
+
+The prepare stage allows the proposer to learn of any competing or previous proposals.
+The second phase is where either a new value or a previously accepted value is proposed.
+
+In some cases:
+- if two proposers are active at the same time (dueling);
+- if messages are lost;
+- or if a majority of the nodes have failed
+then no proposal is accepted by a majority.
+
+Indeed, according to the FLP impossibility result,
+this is the best we can do:
+algorithms that solve the consensus problem must either give up safety or liveness.
+
+Paxos gives up liveness:
+it may have to delay decisions until a point in time
+where there are no competing leaders,
+and a majority of nodes accept a proposal.
+
+Implementing this algorithm is much harder than it sounds.
+There are many small concerns which add up to a fairly significant amount of code:
+- practical optimizations:
+  - avoiding repeated leader election
+  - avoiding repeated propose messages
+- ensuring that followers and proposers do not lose items in stable storage
+- enabling cluster membership to change in a safe manner
+- procedures for bringing a new replica up to date in a safe and efficient manner
+  after a crash, disk loss or when a new node is provisioned
+- procedures for snapshotting and garbage collecting the data
+
+
+*** Partition-tolerant consensus algorithms: Paxos, Raft, ZAB
+
+Paxos is one of the most important algorithms
+when writing strongly consistent partition tolerant replicated systems.
+It is used in many of Google's systems, including the Chubby lock manager used by BigTable/Megastore,
+the Google File System as well as Spanner.
+
+Paxos is named after the Greek island of Paxos,
+and was originally presented by Leslie Lamport
+in a paper called "The Part-Time Parliament" in 1998.
+
+ZAB - the Zookeeper Atomic Broadcast protocol is used in Apache Zookeeper.
+
+Zookeeper is a system which provides coordination primitives for distributed systems,
+and is used by many Hadoop-centric distributed systems for coordination (e.g. HBase, Storm, Kafka).
+
+Zookeeper is basically the open source community's version of Chubby.
+
+Technically speaking atomic broadcast is a problem different from pure consensus,
+but it still falls under the category of partition tolerant algorithms that ensure strong consistency.
+
+Raft is a recent (2013) addition to this family of algorithms.
+It is designed to be easier to teach than Paxos, while providing the same guarantees.
+
+Different parts of the algorithm are more clearly separated
+and the paper also describes a mechanism for cluster membership change.
+
+It has recently seen adoption in etcd inspired by ZooKeeper.
+https://github.com/coreos/etcd
+(Distributed reliable key-value store for the most critical data of a distributed system).
+
+
+*** Replication methods with strong consistency
+
+Here are some of the key characteristics of each of the algorithms:
+
+Primary/Backup
+- Single, static master
+- Replicated log, slaves are not involved in executing operations
+- No bounds on replication delay
+- Not partition tolerant
+- Manual/ad-hoc failover, not fault tolerant, "hot backup"
+
+2PC
+- Unanimous vote: commit or abort
+- Static master
+- 2PC cannot survive simultaneous failure of the coordinator and a node during a commit
+- Not partition tolerant, tail latency sensitive
+
+Paxos
+- Majority vote
+- Dynamic master
+- Robust to n/2-1 simultaneous failures as part of protocol
+- Less sensitive to tail latency
+
+
+** Replication: weak consistency model protocols
