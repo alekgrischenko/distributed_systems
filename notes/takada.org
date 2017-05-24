@@ -5,7 +5,8 @@ http://book.mixu.net/distsys/single-page.html
 ** Introduction
 
 Introducing the key concepts.
-Providing a narrative that covers things in enough detail that you get a gist of what's going on without getting stuck on details.
+Providing a narrative that covers things in enough detail
+that you get a gist of what's going on without getting stuck on details.
 
 
 ** Distributed systems at a high level
@@ -15,8 +16,8 @@ that you can solve on a single computer using multiple computers.
 Usually, because the problem no longer fits on a single computer.
 
 There are two basic tasks that any computer system needs to accomplish:
-- storage and
-- computation
+- storage
+- and computation
 
 Upgrading hardware is a viable strategy.
 However, as problem sizes increase
@@ -36,11 +37,11 @@ and what is impossible.
 
 
 *** Scalability
-is the ability of a system, network, or process,
+
+Scalabiliy is the ability of a system, network, or process,
 to handle a growing amount of work in a capable manner
 or its ability to be enlarged to accommodate that growth.
 https://en.wikipedia.org/wiki/Scalability
-
 
 *Size scalability*
 Adding more nodes should make the system linearly faster;
@@ -57,7 +58,8 @@ Adding more nodes should not increase the administrative costs of the system
 
 
 *** Performance
-is characterized by the amount of useful work
+
+Performance is characterized by the amount of useful work
 accomplished by a computer system
 compared to the time and resources used.
 https://en.wikipedia.org/wiki/Computer_performance
@@ -76,7 +78,8 @@ for individual pieces of work due to batching.
 
 
 *** Latency
-delay, a period between the initiation of something and the occurrence.
+
+Latency delay, a period between the initiation of something and the occurrence.
 
 Latency is really the time between when something happened
 and the time it has an impact or becomes visible.
@@ -95,7 +98,8 @@ and hardware components have a minimum latency cost incurred per operation.
 
 
 *** Availability
-the proportion of time a system is in a functioning condition.
+
+The proportion of time a system is in a functioning condition.
 If a user cannot access the system, it is said to be unavailable.
 
 Distributed systems can take a bunch of unreliable components,
@@ -121,7 +125,8 @@ How much downtime is allowed per year?
 
 
 *** Fault tolerance
-ability of a system to behave in a well-defined manner once faults occur.
+
+Ability of a system to behave in a well-defined manner once faults occur.
 
 Define what faults you expect
 and then design a system that is tolerant of them.
@@ -137,7 +142,6 @@ while an anomaly is unexpected behavior.
 Distributed systems are constrained by two physical factors:
 - the number of nodes (which increases with the required storage and computation capacity)
 - the distance between nodes (information travels, at best, at the speed of light)
-
 
 An increase in the number of independent nodes
 - increases the probability of failure in a system
@@ -1337,3 +1341,621 @@ Paxos
 
 
 ** Replication: weak consistency model protocols
+
+We want a system where we can write code
+that doesn't use expensive coordination, and yet returns a "usable" value.
+
+we will allow different replicas to diverge from each other -
+both to keep things efficient but also to tolerate partitions -
+and then try to find a way to deal with the divergence in some manner.
+
+Eventual consistency expresses this idea:
+that nodes can for some time diverge from each other,
+but that eventually they will agree on the value.
+
+There are two types of system designs:
+- Eventual consistency with probabilistic guarantees.
+- Eventual consistency with strong guarantees.
+
+
+*Eventual consistency with probabilistic guarantees*
+Amazon's Dynamo.
+
+This type of system can detect conflicting writes at some later point,
+but does not guarantee that the results are equivalent
+to some correct sequential execution.
+
+Conflicting updates will sometimes result in overwriting a newer value with an older one
+and some anomalies can be expected to occur during normal operation (or during partitions).
+
+
+*Eventual consistency with strong guarantees*
+
+This type of system guarantees that the results converge to a common value
+equivalent to some correct sequential execution.
+
+Such systems do not produce any anomalous results.
+
+CRDT's (convergent replicated data types)
+are data types that guarantee convergence (схождение)
+to the same value in spite of network delays, partitions and message reordering.
+But the data types that can be implemented as CRDT's are limited.
+
+The CALM (consistency as logical monotonicity) conjecture (теорема)
+is an alternative expression of the same principle.
+It equates logical monotonicity with convergence.
+
+If we can conclude that something is logically monotonic,
+then it is also safe to run without coordination.
+
+*Confluence (слияние) analysis*
+can be used to guide programmer decisions about
+when and where to use the coordination techniques from strongly consistent systems
+and when it is safe to execute without coordination.
+
+
+*** Reconciling (согласование) different operation orders
+
+Let's imagine a system of three replicas, each of which is partitioned from the others.
+Each replica remains available during the partition, accepting both reads and writes from some set of clients.
+
+After some time, the partitions heal and the replica servers exchange information.
+They have received different updates from different clients and have diverged each other,
+so some sort of reconciliation needs to take place.
+
+[A] \
+    --> [merge]
+[B] /     |
+          |
+[C] ----[merge]---> result
+
+
+Another way is to imagine a set of clients sending messages to two replicas in some order.
+Because there is no coordination protocol that enforces a single total order,
+the messages can get delivered in different orders at the two replicas.
+
+[Clients]  --> [A]  1, 2, 3
+[Clients]  --> [B]  2, 3, 1
+
+Assume that we are trying to concatenate a string and the operations in messages 1, 2 and 3 are:
+1: { operation: concat('Hello ') }
+2: { operation: concat('World') }
+3: { operation: concat('!') }
+
+Then, without coordination, A will produce "Hello World!", and B will produce "World!Hello ".
+
+Keeping these two examples in mind, let's look at Amazon's Dynamo first to establish a baseline,
+and then discuss a number of novel approaches to building systems with weak consistency guarantees,
+such as CRDT's and the CALM theorem.
+
+
+*** Amazon's Dynamo
+
+Amazon's Dynamo system design (2007) is probably
+the best-known system that offers weak consistency guarantees but high availability.
+
+It is the basis for many other real world systems, including
+- LinkedIn's Voldemort,
+- Facebook's Cassandra
+- and Basho's Riak.
+
+Dynamo is an eventually consistent, highly available key-value store.
+A key value store is like a large hash table:
+a client can set values via set(key, value)
+and retrieve them by key using get(key).
+
+A Dynamo cluster consists of N peer nodes;
+each node has a set of keys which is it responsible for storing.
+
+Dynamo prioritizes availability over consistency; it does not guarantee single-copy consistency.
+Instead, replicas may diverge from each other when values are written;
+when a key is read, there is a read reconciliation phase
+that attempts to reconcile differences between replicas
+before returning the value back to the client.
+
+If the data is not particularly important,
+then a weakly consistent system can provide better performance and higher availability
+at a lower cost than a traditional RDBMS.
+
+
+**** Consistent hashing
+
+Whether we are reading or writing,
+the first thing that needs to happen is that we need to locate
+where the data should live on the system.
+This requires some type of key-to-node mapping.
+
+In Dynamo, keys are mapped to nodes using a hashing technique known as consistent hashing
+https://github.com/mixu/vnodehash
+
+- Keys are hashed onto a 32-bit hash ring.
+- The key space is partitioned into a fixed number of vnodes.
+- The vnodes never change, but their owners do.
+- Each node owns one or more vnodes.
+
+Quick intro to hashing strategies:
+
+*Naive hashing*
+
+hash(key) % length(nodes)
+
+If the number of servers changes, all the hash indices changes
+and the data gets reallocated accross the cluster.
+
+
+*Consistent hashing without vnodes*
+
+The random assignment of servers onto the ring
+may result to non-uniform data distribution since the sizes of the ranges vary.
+
+All servers are treated equally, when in reality they may have varying capacities.
+
+When a server is added or removed, it only gets nodes from it's neighbors.
+Ideally, the nodes would be distributed more equally amongst the new ring.
+You can imagine a pathological case
+where servers leave from one side of the ring, causing their neighbors to take on increasing load.
+
+
+*Consistent hashing using vnodes*
+
+By using vnodes, the placement of partitions is decoupled from the partitioning scheme.
+
+Adding and removing a node can be implemented as a manipulation of the vnode table.
+Changes in assignment can be spread across multiple nodes (rather than just the nearest neighboring servers).
+
+The number of vnodes a server is responsible for
+can represent its capacity, so more capable nodes can be assigned more vnodes.
+
+The key-to-vnode mapping is constant,
+meaning that the data for each vnode can be kept in a separate file.
+This means that during a replication, the data for a vnode can be relocated as a unit
+(rather than requiring random accesses).
+
+
+**** Partial quorums
+
+Just like Paxos or Raft, Dynamo uses quorums for replication.
+However, Dynamo's quorums are sloppy (partial) quorums rather than strict (majority) quorums.
+
+Majority is not required
+and that different subsets of the quorum
+may contain different versions of the same data.
+The user can choose the number of nodes to write to and read from.
+
+The user can choose some number W-of-N nodes required for a write to succeed.
+The user can specify the number of nodes (R-of-N) to be contacted during a read.
+
+Writing to more nodes makes writes slightly slower
+but increases the probability that the value is not lost;
+reading from more nodes increases the probability that the value read is up to date.
+
+The usual recommendation is that R + W > N,
+because this means that the read and write quorums overlap in one node -
+making it less likely that a stale value is returned.
+
+A typical configuration is N = 3 (e.g. a total of three replicas for each value);
+
+R = 1, W = N: fast reads, slow writes
+R = N, W = 1: fast writes, slow reads
+R = N/2 and W = N/2 + 1: favorable (благоприятный) to both
+
+N is rarely more than 3, because keeping that many copies of large amounts of data around gets expensive!
+
+
+Basho's Riak (N = 3, R = 2, W = 2 default)
+Linkedin's Voldemort (N = 2 or 3, R = 1, W = 1 default)
+Apache's Cassandra (N = 3, R = 1, W = 1 default)
+
+When sending a read or write request,
+are all N nodes asked to respond (Riak),
+or only a number of nodes that meets the minimum (e.g. R or W; Voldemort).
+
+The "send-to-all" approach is faster and less sensitive to latency
+(since it only waits for the fastest R or W nodes of N) but also less efficient,
+while the "send-to-minimum" approach is more sensitive to latency
+(since latency communicating with a single node will delay the operation)
+but also more efficient (fewer messages / connections overall).
+
+
+**** Is R + W > N the same as "strong consistency"?
+
+No.
+
+A system where R + W > N can detect read/write conflicts,
+since any read quorum and any write quorum share a member.
+E.g. at least one node is in both quorums.
+
+This guarantees that a previous write will be seen by a subsequent read.
+
+However, this only holds if the nodes in N never change.
+In Dynamo the cluster membership can change if nodes fail.
+
+Dynamo is designed to be always writable.
+It has a mechanism which handles node failures
+by adding a different, unrelated server into the set of nodes
+responsible for certain keys when the original server is down.
+
+Concretely, during a partition, if a sufficient number of nodes cannot be reached,
+Dynamo will add new nodes to the quorum from unrelated but accessible nodes.
+
+This means that the quorums are no longer guaranteed to always overlap.
+
+So calling R + W > N "strongly consistent" is misleading;
+the guarantee is merely probabilistic - which is not what strong consistency refers to.
+
+
+**** Conflict detection and read repair
+
+Systems that allow replicas to diverge
+must have a way to eventually reconcile (согласовать) two different values.
+
+One way to do this is to detect conflicts at read time,
+and then apply some conflict resolution method.
+
+This is done by tracking the causal history of a piece of data
+by supplementing it with some metadata.
+Dynamo uses vector clock.
+
+However, using vector clocks is not the only alternative.
+
+*No metadata*
+A common rule is that the last writer wins:
+if two writers are writing at the same time,
+only the value from the slowest writer is kept around.
+
+*Timestamps* (Facebook's Cassandra)
+Nominally, the value with the higher timestamp value wins.
+However, if time is not carefully synchronized, many odd things can happen
+where old data from a system with a faulty or fast clock overwrites newer values.
+
+*Version numbers*
+Version numbers may avoid some of the issues related with using timestamps.
+
+*Vector clocks*
+Concurrent and out of date updates can be detected.
+Performing read repair then becomes possible,
+though in some cases (concurrent changes) we need to ask the client to pick a value.
+The client / application developer must occasionally handle these cases
+by picking a value based on some use-case specific criterion.
+
+Clocks cannot be allowed to grow forever -
+so there needs to be a procedure for occasionally garbage collecting the clocks in a safe manner.
+
+
+**** Replica synchronization: gossip and Merkle trees
+
+It needs a way to deal with nodes rejoining the cluster after being partitioned,
+or when a failed node is replaced or partially recovered.
+
+Replica synchronization is used to bring nodes up to date after a failure,
+and for periodically synchronizing replicas with each other.
+
+Gossip is a probabilistic technique for synchronizing replicas.
+
+The pattern of communication (e.g. which node contacts which node) is not determined in advance.
+Instead, nodes have some probability p of attempting to synchronize with each other.
+Every t seconds, each node picks a node to communicate with.
+
+Gossip is scalable, and has no single point of failure, but can only provide probabilistic guarantees.
+
+In order to make the information exchange during replica synchronization efficient,
+Dynamo uses a technique called Merkle trees.
+
+The key idea is that a data store can be hashed at multiple different levels of granularity:
+a hash representing the whole content, half the keys, a quarter of the keys and so on.
+By maintaining this fairly granular hashing,
+nodes can compare their data store content much more efficiently than a naive technique.
+
+Once the nodes have identified which keys have different values,
+they exchange the necessary information to bring the replicas up to date.
+
+
+**** Dynamo in practice: probabilistically bounded staleness (PBS)
+
+And that pretty much covers the Dynamo system design:
+- consistent hashing to determine key placement
+- partial quorums for reading and writing
+- conflict detection and read repair via vector clocks and
+- gossip for replica synchronization
+
+A fairly recent paper from Bailis et al. (2012)
+describes an approach called PBS (probabilistically bounded staleness)
+http://pbs.cs.berkeley.edu/
+uses simulation and data collected from a real world system
+to characterize the expected behavior of such a system.
+
+PBS estimates the degree of inconsistency
+by using information about the anti-entropy (gossip) rate,
+the network latency and local processing delay
+to estimate the expected level of consistency of reads.
+
+
+*** Disorderly programming
+
+Let's look back at the examples in *Reconciling (согласование) different operation orders*.
+
+The first scenario consisted of three different servers behind partitions;
+after the partitions healed, we wanted the servers to converge to the same value.
+Amazon's Dynamo made this possible by reading from R out of N nodes and then performing read reconciliation.
+
+In the second example, we considered a more specific operation: string concatenation.
+
+There are operations which can be applied safely in any order,
+where a simple register would not be able to do so.
+
+Consider a system that implements a simple accounting system
+with the debit and credit operations in two different ways:
+- using a register with read and write operations, and
+- using a integer data type with native debit and credit operations
+
+The latter implementation knows more about the internals of the data type,
+and so it can preserve the intent of the operations
+in spite of the operations being reordered.
+
+Debiting or crediting can be applied in any order, and the end result is the same:
+100 + credit(10) + credit(20) = 130 and
+100 + credit(20) + credit(10) = 130
+
+However, writing a fixed value cannot be done in any order:
+if writes are reordered, the one of the writes will overwrite the other:
+100 + write(110) + write(130) = 130 but
+100 + write(130) + write(110) = 110
+
+Let's take the example from the beginning of this chapter,
+but use a different operation.
+In this scenario, clients are sending messages to two nodes,
+which see the operations in different orders:
+
+[Clients]  --> [A]  1, 2, 3
+[Clients]  --> [B]  2, 3, 1
+
+Instead of string concatenation, assume that we are looking to find the largest value
+(e.g. MAX()) for a set of integers. The messages 1, 2 and 3 are:
+
+1: { operation: max(previous, 3) }
+2: { operation: max(previous, 5) }
+3: { operation: max(previous, 7) }
+
+Then, without coordination, both A and B will converge to 7, e.g.:
+
+A: max(max(max(0, 3), 5), 7) = 7
+B: max(max(max(0, 5), 7), 3) = 7
+
+In both cases, two replicas see updates in different order,
+but we are able to merge the results.
+
+It is likely not possible to write a merge procedure that works for all data types.
+However, if we know that the data is of a more specific type,
+handling these kinds of conflicts becomes possible.
+
+CRDT's are data structures designed to provide data types
+that will always converge, as long as they see
+the same set of operations (in any order).
+
+
+*** CRDTs: Convergent replicated data types
+
+Exploit knowledge regarding the commutativity and associativity of specific operations on specific datatypes.
+
+In order for a set of operations to converge on the same value
+the operations need to be order-independent
+and insensitive to (message) duplication/redelivery.
+
+Thus, their operations need to be:
+- Associative (a+(b+c)=(a+b)+c), so that grouping doesn't matter
+- Commutative (a+b=b+a), so that order of application doesn't matter
+- Idempotent (a+a=a), so that duplication does not matter
+
+For example, max() operation is associative, commutative and idempotent.
+
+These structures are already known in mathematics;
+they are known as *join or meet semilattices* (верхняя или нижняя полурешётка).
+https://ru.wikipedia.org/wiki/%D0%9F%D0%BE%D0%BB%D1%83%D1%80%D0%B5%D1%88%D1%91%D1%82%D0%BA%D0%B0
+
+A *lattice* (решётка) is a partially ordered set
+with a distinct top (least upper bound)
+and a distinct bottom (greatest lower bound).
+
+A *semilattice* is like a lattice, but one that only has a distinct top or bottom.
+A *join semilattice* is one with a distinct top (least upper bound)
+and a *meet semilattice* is one with a distinct bottom (greatest lower bound).
+
+Any data type that be expressed as a semilattice
+can be implemented as a data structure which guarantees convergence.
+
+For example, here are two lattices:
+one drawn for a set, where the merge operator is union(items)
+and one drawn for a strictly increasing integer counter, where the merge operator is max(values):
+
+   { a, b, c }              7
+  /      |    \            /  \
+{a, b} {b,c} {a,c}        5    7
+  |  \  /  | /           /   |  \
+  {a} {b} {c}            3   5   7
+
+With data types that can be expressed as semilattices,
+you can have replicas communicate in any pattern
+and receive the updates in any order,
+and they will eventually agree on the end result
+as long as they all see the same information.
+
+However, expressing a data type as a semilattice often requires some level of interpretation.
+Many data types have operations which are not in fact order-independent.
+For example, adding items to a set is associative, commutative and idempotent.
+However, if we also allow items to be removed from a set,
+then we need some way to resolve conflicting operations, such as add(A) and remove(A).
+What does it mean to remove an element if the local replica never added it?
+This resolution has to be specified in a manner that is order-independent,
+and there are several different choices with different tradeoffs.
+
+This means that several familiar data types
+have more specialized implementations as CRDT's which make a different tradeoff.
+
+Some examples of the different data types specified as CRDT's include:
+- Counters
+  - G-Counter. Grow-only counter (merge = max(values); payload = single integer)
+  - PN-Counter. Positive-negative counter (consists of two grow counters, one for increments and another for decrements)
+- Registers
+  - LWW-Register. Last Write Wins -register (timestamps or version numbers; merge = max(ts); payload = blob)
+  - MV-Register. Multi-valued -register (vector clocks; merge = take both)
+- Sets
+  - G-Set. Grow-only set (merge = union(items); payload = set; no removal)
+  - 2P-Set. Two-phase set (consists of two sets, one for adding, and another for removing; elements can be added once and removed once)
+  - Unique set (an optimized version of the two-phase set)
+  - LWW-Set. Last write wins set (merge = max(ts); payload = set)
+  - PN-Set. Positive-negative set (consists of one PN-counter per set item)
+  - OR-Set. Observed-remove set
+- Graphs and text sequences (see the paper)
+
+Not all data structures have known implementations as CRDTs,
+but there are CRDT implementations for booleans, counters, sets, registers and graphs
+in the recent (2011) survey paper from Shapiro et al
+http://hal.inria.fr/docs/00/55/55/88/PDF/techreport.pdf
+
+Репликация без конфликтов: CRDT в теории и на практике
+https://habrahabr.ru/post/272987/
+
+В CRDT предполагается, что система обеспечивает SEC (Strong Eventual Consistency)
+и её состояния монотонно прогрессируют, не приводя к конфликтам.
+
+Монотонность в этом смысле означает отсутствие откатов:
+операции нельзя отменить, вернув систему в раннее состояние.
+
+Состояния такой системы связаны отношением частичного порядка,
+в математике такая система с определённой на ней операцией объединения называется полурешёткой.
+
+CRDT принято разделять на два класса:
+
+- Коммутативные (commutative, CmRDT, operation-based):
+  предположим, у вас есть список. При добавлении элемента вы отправляете всем репликам
+  только это измененённое состояние (добавленный элемент).
+  Операции должны быть коммутативными, чтобы состояние реплики не зависело от порядка получения апдейтов.
+
+- Основанные на хранении состояния (convergent: CvRDT, state-based):
+  в этом случае отправляются не отдельные апдейты, а вся структура данных целиком
+  (то есть, весь список, в случае списка).
+  Структура данных должна поддерживать операции:
+  - query — прочитать что-то, не изменяя состояние (например: есть ли элемент в списке?)
+  - update — изменить структуру (например: добавить элемент в список)
+  - merge — замёржить состояние, пришедшее из другой реплики.
+    Эта операция должна быть коммутативной, ассоциативной и идемпонетной:
+    мёрж любых состояний в любых направлениях не «возвращает» систему в более раннее состояние,
+    а монотонно увеличивает состояние системы.
+
+Давайте сделаем список, в котором можно добавлять и удалять элементы.
+Он называется 2P-Set.
+На реплике лежит два множества:
+добавленные элемент (A) и удалённые (R; это множество часто называют tombstone set),
+изначально пустые.
+
+При добавлении элемента, мы добавляем его в A, при удалении — в R.
+Проверка включения во множество состоит в проверке,
+нет ли элемента в R и есть ли он в A.
+
+Получается, удаление приоритетнее добавления:
+единожды удалив элемент, его уже нельзя добавить обратно:
+из R и A элементы не удаляются.
+
+
+*** The CALM theorem
+
+Programming is about more than just evolving state, unless you are just implementing a data store.
+
+There are many programming models in which the order of statements does not play a significant role.
+For example, in the MapReduce model.
+
+Similarly, in SQL one specifies the query, but not how the query is executed.
+The query is simply a declarative description of the task.
+
+Of course, these programming models are not as permissive as a general purpose programming language.
+MapReduce tasks need to be expressible as stateless tasks in an acyclic dataflow program;
+SQL statements can execute fairly sophisticated computations but many things are hard to express in it.
+
+Programming models which express a desired result
+while leaving the exact order of statements up to an optimizer to decide
+often have semantics that are order-independent.
+
+The key point is that such programs *may be* safe to execute without coordination.
+Need a clear rule what is safe to execute without coordination.
+This is what the CALM theorem is about.
+
+The CALM theorem is based on a recognition of the link
+between logical monotonicity and useful forms of eventual consistency (e.g. confluence / convergence).
+It states that logically monotonic programs are guaranteed to be eventually consistent.
+
+If we know that some computation is logically monotonic,
+then we know that it is also safe to execute without coordination.
+
+To better understand this,
+we need to contrast monotonic logic (or monotonic computations)
+with non-monotonic logic (or non-monotonic computations).
+
+Most standard logical frameworks are monotonic:
+any inferences (выводы) made within a framework such as first-order logic,
+once deductively valid, cannot be invalidated by new information.
+
+A non-monotonic logic is a system in which that property does not hold -
+in other words, if some conclusions can be invalidated by learning new knowledge.
+
+Within the artificial intelligence community,
+non-monotonic logics are associated with defeasible reasoning -
+reasoning, in which assertions made utilizing partial information
+can be invalidated by new knowledge.
+
+There are a number of programming models
+for which determining monotonicity is possible.
+In particular, relational algebra (e.g. the theoretical underpinnings of SQL)
+and Datalog (declarative logic programming language, subset of Prolog)
+provide highly expressive languages that have well-understood interpretations.
+
+If we can express our computation in a manner
+in which it is possible to test for monotonicity,
+then we can perform a whole-program static analysis that detects
+which parts of the program are eventually consistent and safe to run without coordination (the monotonic parts) -
+and which parts are not (the non-monotonic ones).
+
+Note that this requires a different kind of language,
+since these inferences are hard to make for traditional programming languages.
+Which is why the Bloom language was designed.
+
+
+*** What is non-mononicity good for?
+
+The difference between monotonicity and non-monotonicity is interesting.
+For example, adding two numbers is monotonic,
+but calculating an aggregation over two nodes containing numbers is not.
+
+Много слов про логику, но я ничего не понял.
+
+Because the aggregation does not only calculate a sum
+but also asserts that it has seen all of the values.
+
+And the only way to guarantee that is
+to coordinate across nodes and ensure that
+the node performing the calculation
+has really seen all of the values within the system.
+
+Purely monotone systems are rare.
+It seems that most applications operate under the closed-world assumption
+even when they have incomplete data, and we humans are fine with that.
+When a database tells you that a direct flight between San Francisco and Helsinki does not exist,
+you will probably treat this as "according to this database, there is no direct flight",
+but you do not rule out the possibility that that in reality such a flight might still exist.
+
+Really, this issue only becomes interesting when replicas can diverge.
+Then there is a need for a more specific consideration:
+whether the answer is based on just the current node, or the totality of the system.
+
+
+*** The Bloom language
+
+http://bloom-lang.net/
+
+The Bloom language is a language designed to make use of the CALM theorem.
+It is a Ruby DSL which has its formal basis
+in a temporal logic programming language called Dedalus.
+
+In Bloom, each node has a database consisting of collections and lattices.
+Programs are expressed as sets of unordered statements
+which interact with collections (sets of facts) and lattices (CRDTs).
+Statements are order-independent by default, but one can also write non-monotonic functions.
