@@ -953,7 +953,7 @@ This arrangement can provide very strong durability guarantees.
 
 a.k.a. passive replication, or pull replication, or lazy replication.
 
-The master (/leader / coordinator) immediately sends back a response to the client.
+The master (leader, coordinator) immediately sends back a response to the client.
 At some later stage, the asynchronous portion of the replication task takes place.
 Here, the master contacts the other servers using some communication pattern,
 and the other servers update their copies of the data.
