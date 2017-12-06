@@ -1,0 +1,88 @@
+* курс по распределенным системам
+
+- ‘CAP Twelve Years Later’ - Eric Brewer
+  https://www.infoq.com/articles/cap-twelve-years-later-how-the-rules-have-changed
+
+- Please stop calling databases CP or AP
+  https://martin.kleppmann.com/2015/05/11/please-stop-calling-databases-cp-or-ap.html
+
+- http://the-paper-trail.org/blog/distributed-systems-theory-for-the-distributed-systems-engineer/
+
+- составить черновой mind map курса
+  добавить инфу из всех имеющихся черновиков
+
+- short artiles in Dropbox/docs/distributed_systems/
+  - Introduction to Architecting Systems for Scale.pdf 11 pages
+  - fallacies.pdf 11 pages
+  - ConsistencyAndBaseballReport.pdf 14 pages
+  - notes_on_distributed_computing.pdf
+  - https://www.somethingsimilar.com/2013/01/14/notes-on-distributed-systems-for-young-bloods/
+  - Time-Clocks-and-the-Ordering-of-Events-in-a-Distributed-System.pdf
+  - zookeper: zab.pdf zookeeper-internals.pdf
+
+- little riak book
+  - сперва нужно изучить теорию, ссылки есть в книге.
+  - практика, которую нужно воспроизвести и включить в курс
+
+- Jepsen – ое-фреймворк для тестирования распределённых систем.
+  https://jepsen.io/
+  http://www.ustream.tv/recorded/61443262
+  https://aphyr.com/tags/jepsen
+  - А есть что-то похожее на erlang?
+    Есть же либа для тестирования распределенных систем, в курсе Саймона Томпсона упоминалась.
+    proper, что ли
+
+- Актуальные продукты: Cassandra, Riak, ZooKeeper
+  что там еще есть.
+  Инфа по каждому продукту.
+
+- Прочее:
+  - https://www.youtube.com/watch?v=YbZ3zDzDnrw (Raft)
+  - https://notamonadtutorial.com/lasp-a-little-further-down-the-erlang-rabbithole-febba29c8d0c
+  - Всё плохо
+    https://habrahabr.ru/company/mailru/blog/327264/
+  - 10 известных масштабируемых архитектурных шаблонов
+    https://www.insight-it.ru/theory/2011/10-izvestnykh-masshtabiruemykh-arkhitekturnykh-shablonov/
+  - Масштабируемые веб-архитектуры
+    https://www.insight-it.ru/theory/2008/masshtabiruemye-veb-arkhitektury/
+  - Сегментирование базы данных
+    https://www.insight-it.ru/theory/2008/segmentirovanie-bazy-dannykh/
+  - 7 Years of YouTube Scalability Lessons in 30 Minutes
+    http://highscalability.com/blog/2012/3/26/7-years-of-youtube-scalability-lessons-in-30-minutes.html
+  - NoSQL Data Modeling Techniques
+    https://highlyscalable.wordpress.com/2012/03/01/nosql-data-modeling-techniques/
+  - Bryan Hunt - Riak 2.0: The Swiss Army Database - YouTube
+    https://www.youtube.com/watch?v=bpXDcvy54RQ&list=UUKrD_GYN3iDpG_uMmADPzJQ
+  - Alvaro Videla - Building a Distributed Data Ingestion System with RabbitMQ - YouTube
+    https://www.youtube.com/watch?v=EUfSgYU_SFk&list=UUKrD_GYN3iDpG_uMmADPzJQ
+  - Riak NoSQL database - For scalability, distribution and fault tolerance - YouTube
+    https://www.youtube.com/watch?v=wWRdJ3s5Gjg
+  - Summary of network reliability post-mortems—more terrifying than the most horrifying Stephen King novel:
+    http://aphyr.com/posts/288-the-network-is-reliable
+  - http://snarfed.org/transactions_across_datacenters_io.html
+  - https://github.com/palvaro/CMPS290S-Winter16/blob/master/readings.md
+  - https://gist.github.com/macintux/6227368
+  - http://blog.empathybox.com/post/19574936361/getting-real-about-distributed-system-reliability
+
+- Еще много в education.org
+  и в закладках toread
+
+- WGNC как распределенная система -- включить это в курс.
+  можно даже придумать практические задания:
+  - шардирование на основе наследования таблиц
+  - наращивание к-ва серверов БД
+
+- Практика:
+  Первая версия курса -- только erlang. Вторая версия -- python. Потом можно, например, Elixir.
+  - raft, выбор мастера -- материал уже есть, нужно его выпускать в каком-то виде
+  - https://en.wikipedia.org/wiki/Consistent_hashing
+    https://github.com/mixu/vnodehash
+    тоже интересная задачка, которую можно решать со студентами
+    при том, что она уже решена в Riak, нужно более простое, "учебное" решение
+  - своя реализация vector clock -- да, это будет хорошее упражнение
+  - little riak book, riak core application
+  = Страх и ненависть в распределённых системах https://habrahabr.ru/post/322876/
+    master-slave репликация, создание проблем с помощью Jepsen.
+    Без Jepsen смысла мало, трудно будет заметить ошибки.
+    А Jepsen нужно будет подымать и писать под него тесты на кложе.
+    Может, есть аналоги Jepsen?
